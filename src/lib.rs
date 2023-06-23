@@ -1,4 +1,6 @@
+//? agregar los sources activas las ayudas del vscode 💃
 mod lexer_01;
+mod lexer_02_lemi_testing;
 
 #[cfg(test)]
 mod tests {
