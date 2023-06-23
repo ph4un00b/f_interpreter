@@ -1,4 +1,4 @@
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug)]
 enum Token {
     ASSIGN,
     PLUS,
@@ -11,21 +11,22 @@ enum Token {
     EOF,
 }
 
-impl TryFrom<char> for Token {
+//? @see https://doc.rust-lang.org/stable/std/convert/trait.TryFrom.html
+impl TryFrom<Byte> for Token {
     type Error = &'static str;
 
-    fn try_from(value: char) -> Result<Self, Self::Error> {
+    fn try_from(value: Byte) -> Result<Self, Self::Error> {
         match value {
-            '=' => Ok(Token::ASSIGN),
-            ';' => Ok(Token::SEMICOLON),
-            '(' => Ok(Token::LPAREN),
-            ')' => Ok(Token::RPAREN),
-            ',' => Ok(Token::COMMA),
-            '+' => Ok(Token::PLUS),
-            '{' => Ok(Token::LBRACE),
-            '}' => Ok(Token::RBRACE),
-            '\0' => Ok(Token::EOF),
-            _ => Err("GreaterThanZero only accepts values greater than zero!"),
+            b'=' => Ok(Token::ASSIGN),
+            b';' => Ok(Token::SEMICOLON),
+            b'(' => Ok(Token::LPAREN),
+            b')' => Ok(Token::RPAREN),
+            b',' => Ok(Token::COMMA),
+            b'+' => Ok(Token::PLUS),
+            b'{' => Ok(Token::LBRACE),
+            b'}' => Ok(Token::RBRACE),
+            0 => Ok(Token::EOF),
+            _ => Err("only accepts values greater than zero!"),
         }
     }
 }
@@ -46,43 +47,42 @@ impl From<Token> for char {
     }
 }
 
+type Byte = u8;
 #[derive(Debug)]
 pub struct Lexer {
-    pub input: String,
-    current_position: u32,
-    next_position: u32,
-    ch: Option<char>,
+    pub input: Vec<Byte>,
+    current_position: usize,
+    next_position: usize,
+    ch: Byte,
 }
 impl Lexer {
+    pub fn new(input: String) -> Self {
+        let mut l = Self {
+            input: input.into_bytes(),
+            current_position: 0,
+            next_position: 0,
+            ch: 0,
+        };
+        l.read_char();
+        l
+    }
+
     fn next_tok(&mut self) -> Token {
-        let tok = Token::try_from(self.ch.unwrap()).unwrap();
+        let tok = Token::try_from(self.ch).unwrap();
         self.read_char();
 
         tok
     }
 
     fn read_char(&mut self) {
-        if self.next_position >= self.input.len() as u32 {
-            self.ch = Some('\0');
+        if self.next_position >= self.input.len() {
+            self.ch = 0;
         } else {
-            let pos: usize = self.next_position.try_into().unwrap();
-            let Some(char)= self.input.bytes().nth(pos) else {return;};
-            self.ch = Some(char as char);
+            self.ch = self.input[self.next_position];
         };
         self.current_position = self.next_position;
         self.next_position += 1;
     }
-}
-
-pub fn new(input: impl Into<String>) -> Lexer {
-    let mut l = Lexer {
-        input: input.into(),
-        current_position: 0,
-        next_position: 0,
-        ch: None,
-    };
-    l.read_char();
-    l
 }
 
 #[cfg(test)]
@@ -104,13 +104,13 @@ mod tests {
             (Token::EOF, '\0'),
         ];
 
-        let mut lex = new(input);
+        let mut lex = Lexer::new(input.into());
 
         for (expected_token, expected_literal) in tests {
             let tok = lex.next_tok();
-            assert_eq!(tok.clone(), expected_token);
+            assert_eq!(tok, expected_token);
             assert_eq!(char::from(tok), expected_literal);
         }
-        println!("✅ all seems good mf dance time💃!");
+        println!("✅ all seems good mf dance time💃🕺!");
     }
 }
