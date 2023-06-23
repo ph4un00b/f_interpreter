@@ -1,0 +1,10 @@
+{
+  "cSpell.language": "en,es",
+  "cSpell.words": [
+    "LPAREN",
+    "RPAREN"
+  ],
+  "conventionalCommits.scopes": [
+    "lex"
+  ]
+}

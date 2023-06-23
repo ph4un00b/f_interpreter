@@ -1,0 +1,30 @@
+# EditorConfig is awesome: https://editorconfig.org/index
+root = true
+
+# Unix-style newlines with a newline ending every file
+[*]
+end_of_line = lf
+insert_final_newline = true
+charset = utf-8
+indent_style = tab
+# ala linux!
+indent_size = 8
+
+[*.tsx]
+end_of_line = lf
+insert_final_newline = true
+charset = utf-8
+indent_style = tab
+indent_size = 2
+# rust is a very special guy ¯\_( ͡° ͜ʖ ͡°)_/¯
+# https://github.com/rust-lang/style-team/blob/master/guide/guide.md
+[*.rs]
+end_of_line = lf
+insert_final_newline = true
+charset = utf-8
+indent_style = space
+indent_size = 4
+# yml is a very special guy ¯\_( ͡° ͜ʖ ͡°)_/¯
+[*{.json,.yml,.prisma,.md}]
+indent_style = space
+indent_size = 2
