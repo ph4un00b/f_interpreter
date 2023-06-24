@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 #[derive(PartialEq, Debug, Clone)]
 enum Tk {
     //? Operators
@@ -30,6 +28,9 @@ enum Tk {
     TRUE,
     FALSE,
     RETURN,
+    //? TWO_CHARS
+    EQ,
+    NOTEQ,
 }
 
 //? @see https://doc.rust-lang.org/stable/std/convert/trait.TryFrom.html
@@ -81,6 +82,8 @@ impl From<Tk> for char {
             Tk::TRUE => todo!(),
             Tk::FALSE => todo!(),
             Tk::RETURN => todo!(),
+            Tk::EQ => todo!(),
+            Tk::NOTEQ => todo!(),
         }
     }
 }
@@ -112,10 +115,24 @@ impl Lexer {
 
         let tok = match self.ch {
             //? operators
-            b'=' => Tk::ASSIGN,
+            b'=' => {
+                if self.next_byte() == b'=' {
+                    self.read_char();
+                    Tk::EQ
+                } else {
+                    Tk::ASSIGN
+                }
+            }
+            b'!' => {
+                if self.next_byte() == b'=' {
+                    self.read_char();
+                    Tk::NOTEQ
+                } else {
+                    Tk::BANG
+                }
+            }
             b'+' => Tk::PLUS,
             b'-' => Tk::MINUS,
-            b'!' => Tk::BANG,
             b'*' => Tk::ASTERISK,
             b'/' => Tk::SLASH,
             b'<' => Tk::LT,
@@ -169,8 +186,8 @@ impl Lexer {
                 };
             }
             b'0'..=b'9' => {
-                let digit = self.read_number();
-                return Tk::INT(digit);
+                let value = self.read_number();
+                return Tk::INT(value);
             }
             //todo: floats
             //todo: hex
@@ -235,6 +252,14 @@ impl Lexer {
             self.input[self.current_position + 1]
         );
         x
+    }
+
+    fn next_byte(&self) -> Byte {
+        if self.next_position >= self.input.len() {
+            0
+        } else {
+            self.input[self.next_position]
+        }
     }
 }
 
@@ -429,6 +454,34 @@ mod tests {
             Tk::FALSE,
             Tk::SEMI,
             Tk::RBRACE,
+            Tk::EOF,
+        ];
+
+        let mut lex = Lexer::new(input.into());
+
+        for expected_token in tests {
+            let tok = lex.next_tok();
+            assert_eq!(tok, expected_token);
+        }
+        println!("✅ all seems good mf dance time💃🕺!");
+    }
+
+    #[test]
+    fn it_reads_two_character_tokens() {
+        let input = "
+        10 == 10;
+        10 != 9;
+        ";
+
+        let tests = [
+            Tk::INT("10".to_string()),
+            Tk::EQ,
+            Tk::INT("10".to_string()),
+            Tk::SEMI,
+            Tk::INT("10".to_string()),
+            Tk::NOTEQ,
+            Tk::INT("9".to_string()),
+            Tk::SEMI,
             Tk::EOF,
         ];
 
