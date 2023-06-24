@@ -1,60 +1,86 @@
 use std::collections::HashMap;
 
 #[derive(PartialEq, Debug, Clone)]
-enum Token {
+enum Tk {
+    //? Operators
     ASSIGN,
     PLUS,
+    MINUS,
+    BANG,
+    ASTERISK,
+    SLASH,
+    LT,
+    GT,
+
     LPAREN,
     RPAREN,
     LBRACE,
     RBRACE,
     COMMA,
-    SEMICOLON,
+    SEMI,
     EOF,
-    LET,
     IDENT(String),
     INT(String),
-    FUNCTION,
     ILEGAL,
+    //? keywords
+    FUNCTION,
+    LET,
+    IF,
+    ELSE,
+    TRUE,
+    FALSE,
+    RETURN,
 }
 
 //? @see https://doc.rust-lang.org/stable/std/convert/trait.TryFrom.html
-impl TryFrom<Byte> for Token {
+impl TryFrom<Byte> for Tk {
     type Error = &'static str;
 
     fn try_from(value: Byte) -> Result<Self, Self::Error> {
         match value {
-            b'=' => Ok(Token::ASSIGN),
-            b';' => Ok(Token::SEMICOLON),
-            b'(' => Ok(Token::LPAREN),
-            b')' => Ok(Token::RPAREN),
-            b',' => Ok(Token::COMMA),
-            b'+' => Ok(Token::PLUS),
-            b'{' => Ok(Token::LBRACE),
-            b'}' => Ok(Token::RBRACE),
-            0 => Ok(Token::EOF),
+            b'=' => Ok(Tk::ASSIGN),
+            b';' => Ok(Tk::SEMI),
+            b'(' => Ok(Tk::LPAREN),
+            b')' => Ok(Tk::RPAREN),
+            b',' => Ok(Tk::COMMA),
+            b'+' => Ok(Tk::PLUS),
+            b'{' => Ok(Tk::LBRACE),
+            b'}' => Ok(Tk::RBRACE),
+            0 => Ok(Tk::EOF),
             _ => Err("only accepts values greater than zero!"),
         }
     }
 }
 
-impl From<Token> for char {
-    fn from(value: Token) -> char {
+impl From<Tk> for char {
+    fn from(value: Tk) -> char {
         match value {
-            Token::ASSIGN => '=',
-            Token::SEMICOLON => ';',
-            Token::LPAREN => '(',
-            Token::RPAREN => ')',
-            Token::COMMA => ',',
-            Token::PLUS => '+',
-            Token::LBRACE => '{',
-            Token::RBRACE => '}',
-            Token::EOF => '\0',
-            Token::LET => todo!(),
-            Token::FUNCTION => todo!(),
-            Token::IDENT(_) => todo!(),
-            Token::INT(_) => todo!(),
-            Token::ILEGAL => todo!(),
+            Tk::ASSIGN => '=',
+            Tk::SEMI => ';',
+            Tk::LPAREN => '(',
+            Tk::RPAREN => ')',
+            Tk::COMMA => ',',
+            Tk::PLUS => '+',
+            Tk::LBRACE => '{',
+            Tk::RBRACE => '}',
+            Tk::EOF => '\0',
+            Tk::IDENT(_) => todo!(),
+            Tk::INT(_) => todo!(),
+            Tk::ILEGAL => todo!(),
+            Tk::MINUS => todo!(),
+            Tk::BANG => todo!(),
+            Tk::ASTERISK => todo!(),
+            Tk::SLASH => todo!(),
+            Tk::LT => todo!(),
+            Tk::GT => todo!(),
+            //? keywords
+            Tk::FUNCTION => todo!(),
+            Tk::LET => todo!(),
+            Tk::IF => todo!(),
+            Tk::ELSE => todo!(),
+            Tk::TRUE => todo!(),
+            Tk::FALSE => todo!(),
+            Tk::RETURN => todo!(),
         }
     }
 }
@@ -79,53 +105,78 @@ impl Lexer {
         l
     }
 
-    fn next_tok(&mut self) -> Token {
+    fn next_tok(&mut self) -> Tk {
         while self.ch.is_ascii_whitespace() {
             self.read_char();
         }
 
         let tok = match self.ch {
-            b'=' => Token::ASSIGN,
-            b';' => Token::SEMICOLON,
-            b'(' => Token::LPAREN,
-            b')' => Token::RPAREN,
-            b',' => Token::COMMA,
-            b'+' => Token::PLUS,
-            b'{' => Token::LBRACE,
-            b'}' => Token::RBRACE,
+            //? operators
+            b'=' => Tk::ASSIGN,
+            b'+' => Tk::PLUS,
+            b'-' => Tk::MINUS,
+            b'!' => Tk::BANG,
+            b'*' => Tk::ASTERISK,
+            b'/' => Tk::SLASH,
+            b'<' => Tk::LT,
+            b'>' => Tk::GT,
+            b';' => Tk::SEMI,
+            b'(' => Tk::LPAREN,
+            b')' => Tk::RPAREN,
+            b',' => Tk::COMMA,
+            b'{' => Tk::LBRACE,
+            b'}' => Tk::RBRACE,
             b'A'..=b'Z' => {
                 let name = self.read_identifier();
                 return match name.as_str() {
-                    "let" => Token::LET,
-                    "fn" => Token::FUNCTION,
-                    _ => Token::IDENT(name),
+                    //? Keywords
+                    "true" => Tk::TRUE,
+                    "false" => Tk::FALSE,
+                    "if" => Tk::IF,
+                    "else" => Tk::ELSE,
+                    "return" => Tk::RETURN,
+                    "let" => Tk::LET,
+                    "fn" => Tk::FUNCTION,
+                    _ => Tk::IDENT(name),
                 };
             }
             b'a'..=b'z' => {
                 let name = self.read_identifier();
                 return match name.as_str() {
-                    "let" => Token::LET,
-                    "fn" => Token::FUNCTION,
-                    _ => Token::IDENT(name),
+                    //? Keywords
+                    "true" => Tk::TRUE,
+                    "false" => Tk::FALSE,
+                    "if" => Tk::IF,
+                    "else" => Tk::ELSE,
+                    "return" => Tk::RETURN,
+                    "let" => Tk::LET,
+                    "fn" => Tk::FUNCTION,
+                    _ => Tk::IDENT(name),
                 };
             }
             b'_' => {
                 let name = self.read_identifier();
                 return match name.as_str() {
-                    "let" => Token::LET,
-                    "fn" => Token::FUNCTION,
-                    _ => Token::IDENT(name),
+                    //? Keywords
+                    "true" => Tk::TRUE,
+                    "false" => Tk::FALSE,
+                    "if" => Tk::IF,
+                    "else" => Tk::ELSE,
+                    "return" => Tk::RETURN,
+                    "let" => Tk::LET,
+                    "fn" => Tk::FUNCTION,
+                    _ => Tk::IDENT(name),
                 };
             }
             b'0'..=b'9' => {
                 let digit = self.read_number();
-                return Token::INT(digit);
+                return Tk::INT(digit);
             }
             //todo: floats
             //todo: hex
             //todo: octal
-            0 => Token::EOF,
-            _ => Token::ILEGAL,
+            0 => Tk::EOF,
+            _ => Tk::ILEGAL,
         };
 
         self.read_char();
@@ -155,6 +206,7 @@ impl Lexer {
             self.read_char();
         }
         let vec = self.input[position..self.current_position].to_vec();
+        // todo: mejorar esta vaina 👀
         let x = String::from_utf8(vec).unwrap();
         println!(
             "🎈 {} - {}, {}, 👀 next {}",
@@ -173,6 +225,7 @@ impl Lexer {
         }
 
         let vec = self.input[position..self.current_position].to_vec();
+        // todo: mejorar esta vaina 👀
         let x = String::from_utf8(vec).unwrap();
         println!(
             "🎈 {} - {}, {}, 👀 next {}",
@@ -185,10 +238,6 @@ impl Lexer {
     }
 }
 
-fn is_letter(ch: u8) -> bool {
-    ch.is_ascii_alphabetic() || ch == b'_'
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,15 +246,15 @@ mod tests {
     fn it_works() {
         let input = "=+(){},;";
         let tests = [
-            (Token::ASSIGN, '='),
-            (Token::PLUS, '+'),
-            (Token::LPAREN, '('),
-            (Token::RPAREN, ')'),
-            (Token::LBRACE, '{'),
-            (Token::RBRACE, '}'),
-            (Token::COMMA, ','),
-            (Token::SEMICOLON, ';'),
-            (Token::EOF, '\0'),
+            (Tk::ASSIGN, '='),
+            (Tk::PLUS, '+'),
+            (Tk::LPAREN, '('),
+            (Tk::RPAREN, ')'),
+            (Tk::LBRACE, '{'),
+            (Tk::RBRACE, '}'),
+            (Tk::COMMA, ','),
+            (Tk::SEMI, ';'),
+            (Tk::EOF, '\0'),
         ];
 
         let mut lex = Lexer::new(input.into());
@@ -231,43 +280,156 @@ mod tests {
         ";
 
         let tests = [
-            Token::LET,
-            Token::IDENT("five".to_string()),
-            Token::ASSIGN,
-            Token::INT("5".to_string()),
-            Token::SEMICOLON,
-            Token::LET,
-            Token::IDENT("ten".to_string()),
-            Token::ASSIGN,
-            Token::INT("10".to_string()),
-            Token::SEMICOLON,
-            Token::LET,
-            Token::IDENT("add".to_string()),
-            Token::ASSIGN,
-            Token::FUNCTION,
-            Token::LPAREN,
-            Token::IDENT("x".to_string()),
-            Token::COMMA,
-            Token::IDENT("y".to_string()),
-            Token::RPAREN,
-            Token::LBRACE,
-            Token::IDENT("x".to_string()),
-            Token::PLUS,
-            Token::IDENT("y".to_string()),
-            Token::SEMICOLON,
-            Token::RBRACE,
-            Token::SEMICOLON,
-            Token::LET,
-            Token::IDENT("result".to_string()),
-            Token::ASSIGN,
-            Token::IDENT("add".to_string()),
-            Token::LPAREN,
-            Token::IDENT("five".to_string()),
-            Token::COMMA,
-            Token::IDENT("ten".to_string()),
-            Token::RPAREN,
-            Token::SEMICOLON,
-            Token::EOF,
+            Tk::LET,
+            Tk::IDENT("five".to_string()),
+            Tk::ASSIGN,
+            Tk::INT("5".to_string()),
+            Tk::SEMI,
+            Tk::LET,
+            Tk::IDENT("ten".to_string()),
+            Tk::ASSIGN,
+            Tk::INT("10".to_string()),
+            Tk::SEMI,
+            Tk::LET,
+            Tk::IDENT("add".to_string()),
+            Tk::ASSIGN,
+            Tk::FUNCTION,
+            Tk::LPAREN,
+            Tk::IDENT("x".to_string()),
+            Tk::COMMA,
+            Tk::IDENT("y".to_string()),
+            Tk::RPAREN,
+            Tk::LBRACE,
+            Tk::IDENT("x".to_string()),
+            Tk::PLUS,
+            Tk::IDENT("y".to_string()),
+            Tk::SEMI,
+            Tk::RBRACE,
+            Tk::SEMI,
+            Tk::LET,
+            Tk::IDENT("result".to_string()),
+            Tk::ASSIGN,
+            Tk::IDENT("add".to_string()),
+            Tk::LPAREN,
+            Tk::IDENT("five".to_string()),
+            Tk::COMMA,
+            Tk::IDENT("ten".to_string()),
+            Tk::RPAREN,
+            Tk::SEMI,
+            Tk::EOF,
+        ];
+
+        let mut lex = Lexer::new(input.into());
+
+        for expected_token in tests {
+            let tok = lex.next_tok();
+            assert_eq!(tok, expected_token);
+        }
+        println!("✅ all seems good mf dance time💃🕺!");
+    }
+
+    #[test]
+    fn it_reads_code_operators() {
+        let input = "
+        let five = 5;
+        let ten = 10;
+
+        !-/*5;
+        5 < 10 > 5;
+        ";
+
+        let tests = [
+            Tk::LET,
+            Tk::IDENT("five".to_string()),
+            Tk::ASSIGN,
+            Tk::INT("5".to_string()),
+            Tk::SEMI,
+            Tk::LET,
+            Tk::IDENT("ten".to_string()),
+            Tk::ASSIGN,
+            Tk::INT("10".to_string()),
+            Tk::SEMI,
+            Tk::BANG,
+            Tk::MINUS,
+            Tk::SLASH,
+            Tk::ASTERISK,
+            Tk::INT("5".to_string()),
+            Tk::SEMI,
+            Tk::INT("5".to_string()),
+            Tk::LT,
+            Tk::INT("10".to_string()),
+            Tk::GT,
+            Tk::INT("5".to_string()),
+            Tk::SEMI,
+            Tk::EOF,
+        ];
+
+        let mut lex = Lexer::new(input.into());
+
+        for expected_token in tests {
+            let tok = lex.next_tok();
+            assert_eq!(tok, expected_token);
+        }
+        println!("✅ all seems good mf dance time💃🕺!");
+    }
+
+    #[test]
+    fn it_reads_more_keywords() {
+        let input = "
+        let five = 5;
+        let ten = 10;
+
+        !-/*5;
+        5 < 10 > 5;
+
+        if (5 < 10) {
+            return true;
+        } else {
+            return false;
+        }
+        ";
+
+        let tests = [
+            Tk::LET,
+            Tk::IDENT("five".to_string()),
+            Tk::ASSIGN,
+            Tk::INT("5".to_string()),
+            Tk::SEMI,
+            Tk::LET,
+            Tk::IDENT("ten".to_string()),
+            Tk::ASSIGN,
+            Tk::INT("10".to_string()),
+            Tk::SEMI,
+            Tk::BANG,
+            Tk::MINUS,
+            Tk::SLASH,
+            Tk::ASTERISK,
+            Tk::INT("5".to_string()),
+            Tk::SEMI,
+            Tk::INT("5".to_string()),
+            Tk::LT,
+            Tk::INT("10".to_string()),
+            Tk::GT,
+            Tk::INT("5".to_string()),
+            Tk::SEMI,
+            Tk::IF,
+            Tk::LPAREN,
+            Tk::INT("5".to_string()),
+            Tk::LT,
+            Tk::INT("10".to_string()),
+            Tk::RPAREN,
+            Tk::LBRACE,
+            Tk::RETURN,
+            Tk::TRUE,
+            Tk::SEMI,
+            Tk::RBRACE,
+            Tk::ELSE,
+            Tk::LBRACE,
+            Tk::RETURN,
+            Tk::FALSE,
+            Tk::SEMI,
+            Tk::RBRACE,
+            Tk::EOF,
         ];
 
         let mut lex = Lexer::new(input.into());
