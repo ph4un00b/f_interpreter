@@ -8,6 +8,7 @@
   ],
   "conventionalCommits.scopes": [
     "lex",
-    "cli"
+    "cli",
+    "scanner"
   ]
 }

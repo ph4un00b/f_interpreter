@@ -5,6 +5,7 @@ mod lexer_02_lemi_testing;
 mod lexer_03_refactored;
 mod lexer_04_continue;
 mod lexer_05_refactor;
+mod lexer_06_scanner;
 
 #[cfg(test)]
 mod tests {
