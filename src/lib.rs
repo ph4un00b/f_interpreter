@@ -1,4 +1,5 @@
 //? agregar los sources activan las ayudas del vscode 💃
+mod cli;
 mod lexer_01;
 mod lexer_02_lemi_testing;
 mod lexer_03_refactored;

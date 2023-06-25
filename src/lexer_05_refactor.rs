@@ -1,3 +1,18 @@
+/*
+ * This task has been variously called “scanning” and “lexing”
+ * (short for “lexical analysis”) over the years.
+ * Way back when computers were as big as Winnebagos but had less
+ * memory than your watch, some people used “scanner” only to refer
+ * to the piece of code that dealt with reading raw source code
+ * characters from disk and buffering them in memory.
+ * Then “lexing” was the subsequent phase that did useful stuff
+ * with the characters.
+ *
+ * These days, reading a source file into memory is trivial,
+ * so it’s rarely a distinct phase in the compiler.
+ * Because of that, the two terms are basically interchangeable.
+ * @see https://craftinginterpreters.com/scanning.html
+ */
 #[derive(PartialEq, Debug, Clone)]
 enum Tk {
     //? Operators
@@ -34,6 +49,12 @@ enum Tk {
 }
 
 //? @see https://doc.rust-lang.org/stable/std/convert/trait.TryFrom.html
+/*
+ * este trait ya no lo usamos, mucha lógica
+ * intermedia quedó en el lexer
+ * pero dejo este code por referencia.
+ * usage: let tok = Tk::try_from(b'=').unwrap();
+ */
 impl TryFrom<Byte> for Tk {
     type Error = &'static str;
 
@@ -53,6 +74,15 @@ impl TryFrom<Byte> for Tk {
     }
 }
 
+/*
+ * este trait sirve para el testing muy básico
+ * pero la lógica aquí
+ * es la lógica repetida superficialmente en Lex#next_tok
+ * investigar si hay algún helper
+ * que voltee los datos
+ *
+ * usage: String::from(Tk::SEMI) -> ";"
+ */
 impl From<Tk> for String {
     fn from(value: Tk) -> String {
         match value {
@@ -147,38 +177,9 @@ impl Lexer {
             b',' => Tk::COMMA,
             b'{' => Tk::LBRACE,
             b'}' => Tk::RBRACE,
-            b'A'..=b'Z' => {
+            b'A'..=b'Z' | b'a'..=b'z' | b'_' => {
                 let name = self.read_identifier();
                 return match name.as_str() {
-                    //? Keywords
-                    "true" => Tk::TRUE,
-                    "false" => Tk::FALSE,
-                    "if" => Tk::IF,
-                    "else" => Tk::ELSE,
-                    "return" => Tk::RETURN,
-                    "let" => Tk::LET,
-                    "fn" => Tk::FUNCTION,
-                    _ => Tk::IDENT(name),
-                };
-            }
-            b'a'..=b'z' => {
-                let name = self.read_identifier();
-                return match name.as_str() {
-                    //? Keywords
-                    "true" => Tk::TRUE,
-                    "false" => Tk::FALSE,
-                    "if" => Tk::IF,
-                    "else" => Tk::ELSE,
-                    "return" => Tk::RETURN,
-                    "let" => Tk::LET,
-                    "fn" => Tk::FUNCTION,
-                    _ => Tk::IDENT(name),
-                };
-            }
-            b'_' => {
-                let name = self.read_identifier();
-                return match name.as_str() {
-                    //? Keywords
                     "true" => Tk::TRUE,
                     "false" => Tk::FALSE,
                     "if" => Tk::IF,
