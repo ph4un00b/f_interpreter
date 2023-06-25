@@ -33,6 +33,7 @@ pub enum Tk {
     COMMA,
     SEMI,
     EOF,
+    STR(String),
     IDENT(String),
     INT(String),
     ILEGAL,
@@ -57,7 +58,7 @@ pub struct Scanner {
     current_position: usize,
     next_position: usize,
     current_character: Byte,
-    line: i32,
+    current_line: i32,
     // keywords: HashMap<String, Tk>,
 }
 
@@ -68,7 +69,7 @@ impl Scanner {
             current_position: 0,
             next_position: 0,
             current_character: 0,
-            line: 1,
+            current_line: 1,
             tokens: Vec::new(),
         };
         l.read_character();
@@ -130,6 +131,35 @@ impl Scanner {
             b',' => Tk::COMMA,
             b'{' => Tk::LBRACE,
             b'}' => Tk::RBRACE,
+            // todo: update lines
+            // b'\n' =>{
+            //     self.current_line += 1
+            //     ()
+            // },
+            b'"' => {
+                let start = self.current_position;
+                while self.next_byte() != b'"' {
+                    //todo: lines
+                    // if self.next_byte() == b'\n' {
+                    //     self.current_line += 1;
+                    // }
+                    self.read_character();
+                }
+
+                // todo
+                // if self.current_position >= self.source_code.len() {
+                //     println!("❌ Unterminated string.");
+                //     return Tk::ILEGAL;
+                // }
+
+                self.read_character();
+
+                let vec = self.source_code[(start + 1)..(self.current_position)].to_vec();
+                // todo: mejorar esta vaina 👀
+                let x = String::from_utf8(vec).unwrap();
+
+                Tk::STR(x)
+            }
             b'A'..=b'Z' | b'a'..=b'z' | b'_' => {
                 let name = self.read_identifier();
                 return match name.as_str() {
@@ -499,6 +529,36 @@ mod tests {
             Tk::EQ,
             Tk::INT("10".to_string()),
             Tk::SEMI,
+            Tk::INT("10".to_string()),
+            Tk::NOTEQ,
+            Tk::INT("9".to_string()),
+            Tk::SEMI,
+            Tk::EOF,
+        ];
+
+        let mut lex = Scanner::new(input.into());
+
+        for expected_token in tests {
+            let tok = lex.next_tok();
+            assert_eq!(tok, expected_token);
+        }
+        println!("✅ all seems good mf dance time💃🕺!");
+    }
+
+    #[test]
+    fn it_reads_strings() {
+        let input = "
+        10 == 10;
+        \"hola\"
+        10 != 9;
+        ";
+
+        let tests = [
+            Tk::INT("10".to_string()),
+            Tk::EQ,
+            Tk::INT("10".to_string()),
+            Tk::SEMI,
+            Tk::STR("hola".to_string()),
             Tk::INT("10".to_string()),
             Tk::NOTEQ,
             Tk::INT("9".to_string()),

@@ -69,6 +69,7 @@ impl From<Tk> for String {
             Tk::IDENT(_) => todo!(),
             Tk::INT(_) => todo!(),
             Tk::ILEGAL => todo!(),
+            Tk::STR(_) => todo!(),
         }
     }
 }
