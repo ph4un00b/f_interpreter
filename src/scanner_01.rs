@@ -48,6 +48,7 @@ pub enum Tk {
     //? TWO_CHARS
     EQ,
     NOTEQ,
+    COMMENT,
 }
 
 pub type Byte = u8;
@@ -119,10 +120,20 @@ impl Scanner {
                     Tk::BANG
                 }
             }
+            b'/' => {
+                if self.next_byte() == b'/' {
+                    // todo: && !self.is_at_end()
+                    while self.next_byte() != b'\n' {
+                        self.read_character();
+                    }
+                    Tk::COMMENT
+                } else {
+                    Tk::SLASH
+                }
+            }
             b'+' => Tk::PLUS,
             b'-' => Tk::MINUS,
             b'*' => Tk::ASTERISK,
-            b'/' => Tk::SLASH,
             b'<' => Tk::LT,
             b'>' => Tk::GT,
             b';' => Tk::SEMI,
@@ -450,74 +461,6 @@ mod tests {
     }
 
     #[test]
-    fn it_reads_more_keywords() {
-        let input = "
-        let five = 5;
-        let ten = 10;
-
-        !-/*5;
-        5 < 10 > 5;
-
-        if (5 < 10) {
-            return true;
-        } else {
-            return false;
-        }
-        ";
-
-        let tests = [
-            Tk::LET,
-            Tk::IDENT("five".to_string()),
-            Tk::ASSIGN,
-            Tk::INT("5".to_string()),
-            Tk::SEMI,
-            Tk::LET,
-            Tk::IDENT("ten".to_string()),
-            Tk::ASSIGN,
-            Tk::INT("10".to_string()),
-            Tk::SEMI,
-            Tk::BANG,
-            Tk::MINUS,
-            Tk::SLASH,
-            Tk::ASTERISK,
-            Tk::INT("5".to_string()),
-            Tk::SEMI,
-            Tk::INT("5".to_string()),
-            Tk::LT,
-            Tk::INT("10".to_string()),
-            Tk::GT,
-            Tk::INT("5".to_string()),
-            Tk::SEMI,
-            Tk::IF,
-            Tk::LPAREN,
-            Tk::INT("5".to_string()),
-            Tk::LT,
-            Tk::INT("10".to_string()),
-            Tk::RPAREN,
-            Tk::LBRACE,
-            Tk::RETURN,
-            Tk::TRUE,
-            Tk::SEMI,
-            Tk::RBRACE,
-            Tk::ELSE,
-            Tk::LBRACE,
-            Tk::RETURN,
-            Tk::FALSE,
-            Tk::SEMI,
-            Tk::RBRACE,
-            Tk::EOF,
-        ];
-
-        let mut lex = Scanner::new(input.into());
-
-        for expected_token in tests {
-            let tok = lex.next_tok();
-            assert_eq!(tok, expected_token);
-        }
-        println!("✅ all seems good mf dance time💃🕺!");
-    }
-
-    #[test]
     fn it_reads_two_character_tokens() {
         let input = "
         10 == 10;
@@ -563,6 +506,112 @@ mod tests {
             Tk::NOTEQ,
             Tk::INT("9".to_string()),
             Tk::SEMI,
+            Tk::EOF,
+        ];
+
+        let mut lex = Scanner::new(input.into());
+
+        for expected_token in tests {
+            let tok = lex.next_tok();
+            assert_eq!(tok, expected_token);
+        }
+        println!("✅ all seems good mf dance time💃🕺!");
+    }
+
+    #[test]
+    fn it_reads_comments() {
+        let input = "
+        10 == 10;
+        \"hola\"
+        // comentario
+        10 != 9;
+        ";
+
+        let tests = [
+            Tk::INT("10".to_string()),
+            Tk::EQ,
+            Tk::INT("10".to_string()),
+            Tk::SEMI,
+            Tk::STR("hola".to_string()),
+            Tk::COMMENT,
+            Tk::INT("10".to_string()),
+            Tk::NOTEQ,
+            Tk::INT("9".to_string()),
+            Tk::SEMI,
+            Tk::EOF,
+        ];
+
+        let mut lex = Scanner::new(input.into());
+
+        for expected_token in tests {
+            let tok = lex.next_tok();
+            assert_eq!(tok, expected_token);
+        }
+        println!("✅ all seems good mf dance time💃🕺!");
+    }
+
+    #[test]
+    fn it_reads_more_keywords() {
+        let input = "
+        // inicio
+        let five = 5;
+        let ten = 10;
+
+        !-/*5;
+        5 < 10 > 5;
+
+        if (5 < 10) {
+            return true;
+        } else {
+            // falso
+            return false;
+        }
+        // fin
+        ";
+
+        let tests = [
+            Tk::COMMENT,
+            Tk::LET,
+            Tk::IDENT("five".to_string()),
+            Tk::ASSIGN,
+            Tk::INT("5".to_string()),
+            Tk::SEMI,
+            Tk::LET,
+            Tk::IDENT("ten".to_string()),
+            Tk::ASSIGN,
+            Tk::INT("10".to_string()),
+            Tk::SEMI,
+            Tk::BANG,
+            Tk::MINUS,
+            Tk::SLASH,
+            Tk::ASTERISK,
+            Tk::INT("5".to_string()),
+            Tk::SEMI,
+            Tk::INT("5".to_string()),
+            Tk::LT,
+            Tk::INT("10".to_string()),
+            Tk::GT,
+            Tk::INT("5".to_string()),
+            Tk::SEMI,
+            Tk::IF,
+            Tk::LPAREN,
+            Tk::INT("5".to_string()),
+            Tk::LT,
+            Tk::INT("10".to_string()),
+            Tk::RPAREN,
+            Tk::LBRACE,
+            Tk::RETURN,
+            Tk::TRUE,
+            Tk::SEMI,
+            Tk::RBRACE,
+            Tk::ELSE,
+            Tk::LBRACE,
+            Tk::COMMENT,
+            Tk::RETURN,
+            Tk::FALSE,
+            Tk::SEMI,
+            Tk::RBRACE,
+            Tk::COMMENT,
             Tk::EOF,
         ];
 
