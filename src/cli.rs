@@ -1,4 +1,8 @@
-use std::{error::Error, fs, io};
+use std::{
+    error::Error,
+    fs,
+    io::{self, BufRead, Write},
+};
 
 pub struct Config {
     file_path: String,
@@ -6,9 +10,20 @@ pub struct Config {
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     if config.file_path.is_empty() {
-        let mut tokens = String::new();
-        io::stdin().read_line(&mut tokens)?;
-        println!("👀 \n\n{tokens}");
+        let input = io::stdin();
+        let reader = input.lock();
+        let mut lines = reader.lines();
+
+        loop {
+            print!("> ");
+            io::stdout().flush()?;
+            let line = lines.next().transpose()?;
+            if let Some(line) = line {
+                println!("👀 \n\n{line}");
+            } else {
+                break;
+            }
+        }
     } else {
         let contents = fs::read_to_string(config.file_path)?;
         println!("👀 \n\n{contents}");
