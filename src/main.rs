@@ -5,6 +5,7 @@ use std::{
 
 mod cli;
 mod lexer_06_scanner;
+mod scanner_01;
 //? usage: unix - cargo run -- ./codes/first.monkey
 //? usage: ps - cargo run -- ./codes/first.monkey
 fn main() {
