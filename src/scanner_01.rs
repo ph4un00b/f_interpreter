@@ -122,7 +122,7 @@ impl Scanner {
             }
             b'/' => {
                 if self.next_byte() == b'/' {
-                    // todo: && !self.is_at_end()
+                    // todo: while self.next_byte() != b'\n' && !self.is_at_end()
                     while self.next_byte() != b'\n' {
                         self.read_character();
                     }
@@ -149,7 +149,7 @@ impl Scanner {
             // },
             b'"' => {
                 let start = self.current_position;
-                while self.next_byte() != b'"' {
+                while self.current_character.is_ascii() {
                     //todo: lines
                     // if self.next_byte() == b'\n' {
                     //     self.current_line += 1;
@@ -171,8 +171,36 @@ impl Scanner {
 
                 Tk::STR(x)
             }
+            b'0'..=b'9' => {
+                let start = self.current_position;
+                while self.current_character.is_ascii_digit() {
+                    self.read_character();
+                }
+
+                let vec = self.source_code[start..self.current_position].to_vec();
+                // todo: mejorar esta vaina 👀
+                let value = String::from_utf8(vec).unwrap();
+                return Tk::INT(value);
+            }
             b'A'..=b'Z' | b'a'..=b'z' | b'_' => {
-                let name = self.read_identifier();
+                let start = self.current_position;
+                /*
+                 * usage:
+                 * allow snake_case
+                 * allow ? for query methods f.i.: jamon?
+                 * allow ! for throwing methods f.i.: jamon!
+                 */
+                while self.current_character.is_ascii_alphabetic()
+                    || self.current_character == b'_'
+                    || self.current_character == b'?'
+                    || self.current_character == b'!'
+                {
+                    self.read_character();
+                }
+                let vec = self.source_code[start..self.current_position].to_vec();
+                // todo: mejorar esta vaina 👀
+                let name = String::from_utf8(vec).unwrap();
+
                 return match name.as_str() {
                     "true" => Tk::TRUE,
                     "false" => Tk::FALSE,
@@ -183,10 +211,6 @@ impl Scanner {
                     "fn" => Tk::FUNCTION,
                     _ => Tk::IDENT(name),
                 };
-            }
-            b'0'..=b'9' => {
-                let value = self.read_number();
-                return Tk::INT(value);
             }
             //todo: floats
             //todo: hex
@@ -199,47 +223,12 @@ impl Scanner {
         tok
     }
 
-    fn read_identifier(&mut self) -> String {
-        let position = self.current_position;
-        /*
-         * usage:
-         * allow snake_case
-         * allow ? for query methods f.i.: jamon?
-         * allow ! for throwing methods f.i.: jamon!
-         */
-        while self.current_character.is_ascii_alphabetic()
-            || self.current_character == b'_'
-            || self.current_character == b'?'
-            || self.current_character == b'!'
-        {
-            self.read_character();
-        }
-        let vec = self.source_code[position..self.current_position].to_vec();
-        // todo: mejorar esta vaina 👀
-        let x = String::from_utf8(vec).unwrap();
-
-        x
-    }
-
     fn next_byte(&self) -> Byte {
         if self.next_position >= self.source_code.len() {
             0
         } else {
             self.source_code[self.next_position]
         }
-    }
-
-    fn read_number(&mut self) -> String {
-        let position = self.current_position;
-        while self.current_character.is_ascii_digit() {
-            self.read_character();
-        }
-
-        let vec = self.source_code[position..self.current_position].to_vec();
-        // todo: mejorar esta vaina 👀
-        let x = String::from_utf8(vec).unwrap();
-
-        x
     }
 }
 
