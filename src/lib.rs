@@ -6,7 +6,7 @@ mod lexer_03_refactored;
 mod lexer_04_continue;
 mod lexer_05_refactor;
 mod lexer_06_scanner;
-mod scanner_01;
+mod scanner_02_track_lines;
 
 #[cfg(test)]
 mod tests {

@@ -1,4 +1,4 @@
-use crate::scanner_01::{Byte, Scanner, Tk};
+use crate::scanner_02_track_lines::{Byte, Scanner, Tk};
 
 //? @see https://doc.rust-lang.org/stable/std/convert/trait.TryFrom.html
 /*
@@ -66,10 +66,10 @@ impl From<Tk> for String {
             Tk::EQ => "==".to_string(),
             Tk::NOTEQ => "!=".to_string(),
             //? special
-            Tk::IDENT(_) => todo!(),
-            Tk::INT(_) => todo!(),
+            Tk::IDENT(_, _) => todo!(),
+            Tk::INT(_, _) => todo!(),
             Tk::ILEGAL => todo!(),
-            Tk::STR(_) => todo!(),
+            Tk::STR(_, _) => todo!(),
             Tk::COMMENT => todo!(),
         }
     }
