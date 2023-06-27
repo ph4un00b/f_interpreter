@@ -110,9 +110,7 @@ impl Scanner {
 
     pub fn next_tok(&mut self) -> Tk {
         while self.current_character.is_ascii_whitespace() {
-            if let b'\n' = self.current_character {
-                self.current_line += 1;
-            }
+            self.increment_line_if_newline_character();
             self.read_character();
         }
 
@@ -156,18 +154,11 @@ impl Scanner {
             b',' => Tk::COMMA,
             b'{' => Tk::LBRACE,
             b'}' => Tk::RBRACE,
-            // todo: update lines
-            // b'\n' =>{
-            //     self.current_line += 1
-            //     ()
-            // },
             b'"' => {
                 let start = self.current_position;
                 while self.current_character.is_ascii() && self.next_byte() != b'"' {
-                    //todo: lines
-                    // if self.next_byte() == b'\n' {
-                    //     self.current_line += 1;
-                    // }
+                    //? multiline strings supported!
+                    self.increment_line_if_newline_character();
                     self.read_character();
                 }
 
@@ -235,6 +226,12 @@ impl Scanner {
 
         self.read_character();
         tok
+    }
+
+    fn increment_line_if_newline_character(&mut self) {
+        if let b'\n' = self.current_character {
+            self.current_line += 1;
+        }
     }
 
     fn next_byte(&self) -> Byte {
@@ -508,6 +505,38 @@ mod tests {
             Tk::INT("10".to_string(), 4),
             Tk::NOTEQ,
             Tk::INT("9".to_string(), 4),
+            Tk::SEMI,
+            Tk::EOF,
+        ];
+
+        let mut lex = Scanner::new(input.into());
+
+        for expected_token in tests {
+            let tok = lex.next_tok();
+            assert_eq!(tok, expected_token);
+        }
+        println!("✅ all seems good mf dance time💃🕺!");
+    }
+
+    #[test]
+    fn it_reads_multiline_strings() {
+        //todo: check other resources for new ways to handle them
+        let input = "
+         10 == 10;
+         \"hola
+ jamon\"
+         10 != 9;
+         ";
+
+        let tests = [
+            Tk::INT("10".to_string(), 2),
+            Tk::EQ,
+            Tk::INT("10".to_string(), 2),
+            Tk::SEMI,
+            Tk::STR("hola\n jamon".to_string(), 4),
+            Tk::INT("10".to_string(), 5),
+            Tk::NOTEQ,
+            Tk::INT("9".to_string(), 5),
             Tk::SEMI,
             Tk::EOF,
         ];
