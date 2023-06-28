@@ -4,8 +4,10 @@ use std::{
 };
 
 mod cli;
-mod lexer_06_scanner;
-mod scanner_02_track_lines;
+// mod lexer_06_scanner;
+mod lexer_07_emoji_as_token;
+// mod scanner_02_track_lines;
+mod scanner_03_emoji_as_token;
 //? usage: unix - cargo run -- ./codes/first.monkey
 //? usage: ps - cargo run -- ./codes/first.monkey
 fn main() {

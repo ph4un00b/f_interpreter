@@ -5,7 +5,8 @@ use std::{
     process::{self, ExitCode},
 };
 
-use crate::lexer_06_scanner::Lexer;
+// use crate::lexer_06_scanner::Lexer;
+use crate::lexer_07_emoji_as_token::Lexer;
 
 pub struct Config {
     file_path: String,
