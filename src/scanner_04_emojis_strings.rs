@@ -178,8 +178,7 @@ impl Scanner {
             }
             b'/' => {
                 if self.next_byte() == b'/' {
-                    // todo: while self.next_byte() != b'\n' && !self.is_at_end()
-                    while self.next_byte() != b'\n' {
+                    while self.next_byte() != b'\n' && self.next_byte() != 0 {
                         self.read_byte();
                     }
                     Tk::COMMENT
@@ -364,6 +363,24 @@ impl Scanner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn it_reads_comments_on_no_newline() {
+        let input = "// fn";
+
+        let tests = [
+            //?
+            Tk::COMMENT,
+        ];
+
+        let mut lex = Scanner::new(input.into());
+
+        for expected_token in tests {
+            let tok = lex.next_tok();
+            assert_eq!(tok, expected_token);
+        }
+        println!("✅ all seems good mf dance time💃🕺!");
+    }
 
     #[test]
     fn it_reads_emojis_as_token() {

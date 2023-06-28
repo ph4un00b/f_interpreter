@@ -84,7 +84,7 @@ pub struct Lexer {
     pub had_error: bool,
     pub had_runtime_error: bool,
     //? esta propiedad deberia borrarse, para no repetir en memoria
-    tokens: Vec<Tk>,
+    pub tokens: Vec<Tk>,
 }
 
 impl Lexer {
