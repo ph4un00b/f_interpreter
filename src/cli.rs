@@ -43,8 +43,8 @@ impl Lexer {
                 io::stdout().flush()?;
                 let line = lines.next().transpose()?;
                 if let Some(line) = line {
-                    let l = Lexer::new(line).tokens;
-                    println!("👀 \n\n{:?}", l);
+                    let tokens = Lexer::new(line).tokens;
+                    println!("👀 \n\n{:?}", tokens);
                     //? We need to reset this flag in the interactive loop.
                     //? If the user makes a mistake,
                     //? it shouldn’t kill their entire session.
