@@ -6,7 +6,8 @@ use std::{
 };
 
 // use crate::lexer_06_scanner::Lexer;
-use crate::lexer_07_emoji_as_token::Lexer;
+// use crate::lexer_07_emoji_as_token::Lexer;
+use crate::lexer_08_emojis_strings::Lexer;
 
 pub struct Config {
     file_path: String,
