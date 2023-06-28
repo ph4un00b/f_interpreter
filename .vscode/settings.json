@@ -1,10 +1,16 @@
 {
   "cSpell.language": "en,es",
   "cSpell.words": [
+    "fgetc",
+    "Infile",
     "LPAREN",
     "NOTEQ",
+    "postamble",
+    "Putback",
     "RPAREN",
-    "whitespaces"
+    "typechecker",
+    "whitespaces",
+    "YYLMAX"
   ],
   "conventionalCommits.scopes": [
     "lex",

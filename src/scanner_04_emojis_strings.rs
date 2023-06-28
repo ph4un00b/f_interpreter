@@ -80,6 +80,19 @@ impl Scanner {
             current_position: 0,
             next_position: 0,
             current_byte: 0,
+            /*
+             * Tracking source locations
+             * @see https://www3.nd.edu/~dthain/compilerbook/compilerbook.pdf
+             *
+             * In later stages of the compiler,
+             * it is useful for the parser or typechecker to know exactly
+             * what line and column number a token was located at,
+             * usually to print out a helpful error message.
+             * (“Undefined symbol spider at line 153.”)
+             * This is easily done by having the scanner match newline
+             * characters, and increase the line count
+             * (but not return a token) each time one is found.
+             */
             current_line: 1,
             tokens: Vec::new(),
         };
@@ -94,11 +107,11 @@ impl Scanner {
             self.source_code[self.next_position]
         };
 
-        println!(
-            "🎄 {}::{}",
-            self.current_byte,
-            char::from(self.current_byte)
-        );
+        // println!(
+        //     "🎄 {}::{}",
+        //     self.current_byte,
+        //     char::from(self.current_byte)
+        // );
         self.current_position = self.next_position;
         self.next_position += 1;
     }
@@ -113,6 +126,31 @@ impl Scanner {
     }
 
     pub fn next_tok(&mut self) -> Tk {
+        // todo: crear un next function que englobe el salto de linea ❓👀
+        /*
+         * habría beneficio? o más desventaja 🤔
+         * esta es la lógica que tenemos en self#read_byte
+         *
+         * valdría la pena agregar el
+         *  self.current_line += 1;❓
+         */
+
+        //? @see https://github.com/DoctorWkt/acwj/blob/master/01_Scanner/Readme.md#functions-in-scanc
+
+        //? Get the next character from the input file.
+        //? static int next(void) {
+        //?     int c;
+        //?     if (Putback) {                //? Use the character put
+        //?       c = Putback;                //? back if there is one
+        //?       Putback = 0;
+        //?       return c;
+        //?     }
+        //?     c = fgetc(Infile);            //? Read from input file
+        //?     if ('\n' == c)
+        //?       Line++;                     //? Increment line count
+        //?     return c;
+        //?   }
+
         while self.current_byte.is_ascii_whitespace() {
             if let b'\n' = self.current_byte {
                 self.current_line += 1;
@@ -210,10 +248,36 @@ impl Scanner {
 
                 self.read_byte();
 
+                /*
+                 * Cleaning tokens:
+                 * @see https://www3.nd.edu/~dthain/compilerbook/compilerbook.pdf
+                 *
+                 * Internally, the compiler only cares about the actual
+                 * contents of the string. Typically, this is accomplished
+                 *  by writing a function string clean in the "postamble" of
+                 *  the Flex specification. The function is invoked by the
+                 *  matching rule before returning the desired token type.
+                 */
                 let vec = self.source_code[(start + 1)..(self.current_position)].to_vec();
                 // todo: mejorar esta vaina 👀
                 let x = String::from_utf8(vec).unwrap();
 
+                /*
+                 * Constraining tokens.
+                 *
+                 * Although regular expressions can match
+                 * tokens of arbitrary length, it does not follow that
+                 * a compiler must be prepared to accept them.
+                 * There would be little point to accepting a 1000-letter
+                 * identifier, or an integer larger than the machine’s word size.
+                 * The typical approach is to set the maximum token length
+                 * (YYLMAX in flex) to a very large
+                 * value, then examine the token to see if it exceeds a
+                 * logical limit in the action that matches the token.
+                 * This allows you to emit an error message that
+                 *  describes the offending token as needed.
+                 */
+                //todo: limitaremos tokens?
                 Tk::STR(x, self.current_line)
             }
             b'0'..=b'9' => {
@@ -280,6 +344,7 @@ impl Scanner {
                     _ => Tk::ILEGAL,
                 }
             }
+            //todo: handling errors: printf("Unrecognized character %c on line %d\n", c, Line);
             _ => Tk::ILEGAL,
         };
 
