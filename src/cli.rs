@@ -7,7 +7,8 @@ use std::{
 
 // use crate::lexer_06_scanner::Lexer;
 // use crate::lexer_07_emoji_as_token::Lexer;
-use crate::lexer_08_emojis_strings::Lexer;
+// use crate::lexer_08_emojis_strings::Lexer;
+use crate::lexer_09_iterator::Lexer;
 
 pub struct Config {
     file_path: String,
@@ -43,8 +44,12 @@ impl Lexer {
                 io::stdout().flush()?;
                 let line = lines.next().transpose()?;
                 if let Some(line) = line {
-                    let tokens = Lexer::new(line).tokens;
-                    println!("👀 \n\n{:?}", tokens);
+                    let tokens = Lexer::new(line);
+
+                    for tk in tokens {
+                        println!("👀 \n\n{:?}", tk);
+                    }
+
                     //? We need to reset this flag in the interactive loop.
                     //? If the user makes a mistake,
                     //? it shouldn’t kill their entire session.

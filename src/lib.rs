@@ -7,9 +7,11 @@ mod lexer_01;
 // mod lexer_05_refactor;
 // mod lexer_06_scanner;
 // mod lexer_07_emoji_as_token;
-mod lexer_08_emojis_strings;
+// mod lexer_08_emojis_strings;
+mod lexer_09_iterator;
 // mod scanner_02_track_lines;
 // mod scanner_03_emoji_as_token;
+mod ast_01;
 mod scanner_04_emojis_strings;
 
 #[cfg(test)]

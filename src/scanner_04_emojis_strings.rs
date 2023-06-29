@@ -18,7 +18,7 @@ struct TkMeta {
     line: i32,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, PartialOrd)]
 pub enum Tk {
     //? Operators
     ASSIGN,
