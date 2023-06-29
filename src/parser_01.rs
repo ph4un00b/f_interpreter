@@ -7,7 +7,8 @@ use crate::{
 struct Parser<'a> {
     lex: &'a mut Lexer,
     current_token: Tk,
-    peek_token: Tk,
+    next_token: Tk,
+    pub errors: Vec<String>,
 }
 
 impl<'a> Parser<'a> {
@@ -15,7 +16,8 @@ impl<'a> Parser<'a> {
         let mut parser = Parser {
             lex,
             current_token: Tk::ILEGAL,
-            peek_token: Tk::ILEGAL,
+            next_token: Tk::ILEGAL,
+            errors: Vec::new(),
         };
 
         //? Read two tokens, so current_token and peek_token are both set
@@ -25,11 +27,19 @@ impl<'a> Parser<'a> {
         parser
     }
 
+    fn peek_error(&mut self, tk: Tk) {
+        let message = format!(
+            "expected next token to be {:?}, got {:?} instead",
+            tk, self.next_token
+        );
+        self.errors.push(message);
+    }
+
     fn next_token(&mut self) {
         // todo: cuál es la diferencia entre #to_owned y #clone() ❓👀
-        self.current_token = self.peek_token.to_owned();
+        self.current_token = self.next_token.to_owned();
         // println!("curr {:?}", self.current_token);
-        self.peek_token = self.lex.next().unwrap_or(Tk::ILEGAL);
+        self.next_token = self.lex.next().unwrap_or(Tk::ILEGAL);
         // println!("peek {:?}", self.peek_token);
     }
 
@@ -58,26 +68,33 @@ impl<'a> Parser<'a> {
         /*
          * let <identifier> = <expression>;
          */
-        println!("c {:?}, n {:?}", self.current_token, self.peek_token);
+        println!("c {:?}, n {:?}", self.current_token, self.next_token);
         //? son necesarios estos #clone ❓👀
         let mut result = LetStatement {
             token: self.current_token.clone(),
             name: Tk::ILEGAL,
         };
 
-        match self.peek_token {
+        match self.next_token {
             Tk::IDENT(_, _) => self.next_token(),
-            _ => return None,
+            _ => {
+                self.peek_error(Tk::IDENT("".to_string(), 0));
+                return None;
+            }
         };
 
         result.name = self.current_token.clone();
 
-        match self.peek_token {
+        match self.next_token {
             Tk::ASSIGN => self.next_token(),
-            _ => return None,
+            _ => {
+                self.peek_error(Tk::ASSIGN);
+                return None;
+            }
         };
 
         // TODO: We're skipping the expressions until we encounter a semicolon
+
         while self.current_token != Tk::SEMI {
             self.next_token();
         }
@@ -89,6 +106,50 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_let_statements_errors() {
+        // Initialize your Parser and other necessary variables
+        let input = "
+        let x 5;
+        let = 10;
+        let 838383;
+    ";
+        // todo: el mut lexer y el &mut lexer, esta medio rraro ❓👀
+        let mut lexer = Lexer::new(input.to_string());
+        let mut parser = Parser::new(&mut lexer);
+
+        parser.parse_program();
+
+        let errors = parser.errors;
+
+        /*
+         * It doesn’t exit on the first one, potentially saving us the
+         * grunt work of rerunning the parsing process again and again
+         *  to catch all of the syntax errors.
+         * That’s pretty helpful -
+         * even with line and column numbers missing.
+         */
+        if !errors.is_empty() {
+            eprintln!("Parser has {} errors", errors.len());
+            for msg in errors {
+                eprintln!("Parser error: {}", msg);
+            }
+            panic!("Test failed");
+        }
+        // Rest of your test logic
+    }
+
+    // fn check_parser_errors(p: &Parser) {
+    //     let errors = p;
+    //     if !errors.is_empty() {
+    //         eprintln!("Parser has {} errors", errors.len());
+    //         for msg in errors {
+    //             eprintln!("Parser error: {}", msg);
+    //         }
+    //         panic!("Test failed");
+    //     }
+    // }
 
     #[test]
     fn test_let_statements() {
