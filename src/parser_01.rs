@@ -1,5 +1,5 @@
 use crate::{
-    ast_01::{ProgramNode, Stat},
+    ast_01::{ProgramNode, Stt},
     lexer_09_iterator::Lexer,
     scanner_04_emojis_strings::Tk,
 };
@@ -57,7 +57,7 @@ impl<'a> Parser<'a> {
         root_node
     }
 
-    fn parse_statement(&mut self) -> Option<Stat> {
+    fn parse_statement(&mut self) -> Option<Stt> {
         match self.current_token {
             Tk::LET => self.parse_let_statement(),
             Tk::RETURN => self.parse_return_statement(),
@@ -65,17 +65,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_let_statement(&mut self) -> Option<Stat> {
+    fn parse_let_statement(&mut self) -> Option<Stt> {
         /*
          * let <identifier> = <expression>;
          */
-        println!("c {:?}, n {:?}", self.current_token, self.next_token);
+        // println!("c {:?}, n {:?}", self.current_token, self.next_token);
         //? son necesarios estos #clone ❓👀
-        // let mut result = {
-        //     token: self.current_token.clone(),
-        //     name: Tk::ILEGAL,
-        // };
-
         let result_token = self.current_token.clone();
 
         match self.next_token {
@@ -86,7 +81,6 @@ impl<'a> Parser<'a> {
             }
         };
 
-        // result.name = self.current_token.clone();
         let result_name = self.current_token.clone();
 
         match self.next_token {
@@ -103,13 +97,13 @@ impl<'a> Parser<'a> {
             self.next_token();
         }
 
-        Some(Stat::LET {
+        Some(Stt::LET {
             token: result_token,
             name: result_name,
         })
     }
 
-    fn parse_return_statement(&mut self) -> Option<Stat> {
+    fn parse_return_statement(&mut self) -> Option<Stt> {
         /*
          * return <expression>;
          */
@@ -121,7 +115,7 @@ impl<'a> Parser<'a> {
             self.next_token();
         }
 
-        Some(Stat::RET {
+        Some(Stt::RET {
             token: result_token,
         })
     }
@@ -204,7 +198,7 @@ mod tests {
         let mut statements = program.statements.iter();
 
         for expected_statement in statements {
-            assert_eq!(&Stat::RET { token: Tk::RETURN }, expected_statement);
+            assert_eq!(&Stt::RET { token: Tk::RETURN }, expected_statement);
         }
     }
 
@@ -221,6 +215,8 @@ mod tests {
         let mut parser = Parser::new(&mut lexer);
         let program = parser.parse_program();
 
+        // println!("😀\n{}", program);
+        println!("🧐\n{:?}", program);
         assert_eq!(
             program.statements.len(),
             3,
@@ -237,7 +233,7 @@ mod tests {
 
         for expected_identifier in tests {
             assert_eq!(
-                Some(&Stat::LET {
+                Some(&Stt::LET {
                     token: Tk::LET,
                     name: expected_identifier,
                 }),

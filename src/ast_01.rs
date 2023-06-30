@@ -1,6 +1,8 @@
+use std::fmt::{self};
+
 use crate::scanner_04_emojis_strings::Tk;
 
-trait Node {
+trait ASTNode {
     /*
      * TokenLiteral() will be used only
      *  for debugging and testing.
@@ -16,17 +18,36 @@ trait Node {
  * should’ve been used, and vice versa
  */
 
-pub trait Statement: Node {
+pub trait Statement: ASTNode {
     fn statement_node(&self);
 }
 
-pub trait Expression: Node {
+pub trait Expression: ASTNode {
     fn expression_node(&self);
 }
 
+// #[derive(Debug)]
 pub struct ProgramNode {
     // todo: habrá una mejor forma sin BOX ❓👀
-    pub statements: Vec<Stat>,
+    pub statements: Vec<Stt>,
+}
+
+impl fmt::Display for ProgramNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for s in &self.statements {
+            writeln!(f, "{}", s)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for ProgramNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for s in &self.statements {
+            writeln!(f, "Stt {:?}", s)?;
+        }
+        Ok(())
+    }
 }
 
 impl ProgramNode {
@@ -45,7 +66,7 @@ impl ProgramNode {
  * which is just a slice of AST nodes that implement the Statement
  * interface.
  */
-impl Node for ProgramNode {
+impl ASTNode for ProgramNode {
     fn token_literal(&self) -> String {
         if self.statements.is_empty() {
             String::new()
@@ -64,21 +85,42 @@ impl Node for ProgramNode {
  */
 
 #[derive(Debug, PartialEq)]
-pub enum Stat {
+pub enum Stt {
     LET { token: Tk, name: Tk },
     RET { token: Tk },
 }
 
-impl Node for Stat {
+#[derive(Debug, PartialEq)]
+pub enum Exp {
+    //? token: the first token of the expression
+    LET { token: Tk, name: Tk },
+}
+
+impl ASTNode for Stt {
     fn token_literal(&self) -> String {
         match self {
-            Stat::LET { token, name } => String::from(token.clone()),
-            Stat::RET { token } => String::from(token.clone()),
+            Stt::LET { token, name } => String::from(token.clone()),
+            Stt::RET { token } => String::from(token.clone()),
         }
     }
 }
 
-impl Statement for Stat {
+impl fmt::Display for Stt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Stt::LET { token, name } => {
+                writeln!(f, "{} = jamon;", String::from(token.clone()))?;
+            }
+            Stt::RET { token } => {
+                writeln!(f, "{} jamon;", String::from(token.clone()))?;
+            }
+        };
+
+        Ok(())
+    }
+}
+
+impl Statement for Stt {
     fn statement_node(&self) {
         todo!()
     }
@@ -89,7 +131,7 @@ pub struct Identifier {
     value: String,
 }
 
-impl Node for Identifier {
+impl ASTNode for Identifier {
     fn token_literal(&self) -> String {
         // self.token.
         todo!()
