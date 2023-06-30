@@ -26,7 +26,7 @@ pub trait Expression: Node {
 
 pub struct ProgramNode {
     // todo: habrá una mejor forma sin BOX ❓👀
-    pub statements: Vec<LetStatement>,
+    pub statements: Vec<Stat>,
 }
 
 impl ProgramNode {
@@ -62,20 +62,23 @@ impl Node for ProgramNode {
 /*
  * let <identifier> = <expression>;
  */
+
 #[derive(Debug, PartialEq)]
-pub struct LetStatement {
-    pub token: Tk,
-    pub name: Tk,
-    // pub value: dyn Expression,
+pub enum Stat {
+    LET { token: Tk, name: Tk },
+    RET { token: Tk },
 }
 
-impl Node for LetStatement {
+impl Node for Stat {
     fn token_literal(&self) -> String {
-        String::from(self.token.clone())
+        match self {
+            Stat::LET { token, name } => String::from(token.clone()),
+            Stat::RET { token } => String::from(token.clone()),
+        }
     }
 }
 
-impl Statement for LetStatement {
+impl Statement for Stat {
     fn statement_node(&self) {
         todo!()
     }

@@ -1,5 +1,5 @@
 use crate::{
-    ast_01::{LetStatement, ProgramNode},
+    ast_01::{ProgramNode, Stat},
     lexer_09_iterator::Lexer,
     scanner_04_emojis_strings::Tk,
 };
@@ -57,23 +57,26 @@ impl<'a> Parser<'a> {
         root_node
     }
 
-    fn parse_statement(&mut self) -> Option<LetStatement> {
+    fn parse_statement(&mut self) -> Option<Stat> {
         match self.current_token {
             Tk::LET => self.parse_let_statement(),
+            Tk::RETURN => self.parse_return_statement(),
             _ => None,
         }
     }
 
-    fn parse_let_statement(&mut self) -> Option<LetStatement> {
+    fn parse_let_statement(&mut self) -> Option<Stat> {
         /*
          * let <identifier> = <expression>;
          */
         println!("c {:?}, n {:?}", self.current_token, self.next_token);
         //? son necesarios estos #clone ❓👀
-        let mut result = LetStatement {
-            token: self.current_token.clone(),
-            name: Tk::ILEGAL,
-        };
+        // let mut result = {
+        //     token: self.current_token.clone(),
+        //     name: Tk::ILEGAL,
+        // };
+
+        let result_token = self.current_token.clone();
 
         match self.next_token {
             Tk::IDENT(_, _) => self.next_token(),
@@ -83,7 +86,8 @@ impl<'a> Parser<'a> {
             }
         };
 
-        result.name = self.current_token.clone();
+        // result.name = self.current_token.clone();
+        let result_name = self.current_token.clone();
 
         match self.next_token {
             Tk::ASSIGN => self.next_token(),
@@ -99,28 +103,54 @@ impl<'a> Parser<'a> {
             self.next_token();
         }
 
-        Some(result)
+        Some(Stat::LET {
+            token: result_token,
+            name: result_name,
+        })
+    }
+
+    fn parse_return_statement(&mut self) -> Option<Stat> {
+        /*
+         * return <expression>;
+         */
+        let result_token = self.current_token.clone();
+
+        // TODO: We're skipping the expressions until we encounter a semicolon
+
+        while self.current_token != Tk::SEMI {
+            self.next_token();
+        }
+
+        Some(Stat::RET {
+            token: result_token,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
-    #[test]
-    fn test_let_statements_errors() {
-        // Initialize your Parser and other necessary variables
-        let input = "
-        let x 5;
-        let = 10;
-        let 838383;
-    ";
-        // todo: el mut lexer y el &mut lexer, esta medio rraro ❓👀
-        let mut lexer = Lexer::new(input.to_string());
-        let mut parser = Parser::new(&mut lexer);
+    // #[test]
+    // fn test_let_statements_errors() {
+    //     // Initialize your Parser and other necessary variables
+    //     let input = "
+    //     let x 5;
+    //     let = 10;
+    //     let 838383;
+    // ";
+    //     // todo: el mut lexer y el &mut lexer, esta medio rraro ❓👀
+    //     let mut lexer = Lexer::new(input.to_string());
+    //     let mut parser = Parser::new(&mut lexer);
 
-        parser.parse_program();
+    //     parser.parse_program();
 
+    //     check_errors(parser);
+    //     // Rest of your test logic
+    // }
+
+    fn check_errors(parser: Parser<'_>) {
         let errors = parser.errors;
 
         /*
@@ -137,7 +167,6 @@ mod tests {
             }
             panic!("Test failed");
         }
-        // Rest of your test logic
     }
 
     // fn check_parser_errors(p: &Parser) {
@@ -150,6 +179,34 @@ mod tests {
     //         panic!("Test failed");
     //     }
     // }
+
+    #[test]
+    fn test_return_statements() {
+        let input = "
+            return 5;
+            return 10;
+            return 993322;
+        ";
+
+        // todo: el mut lexer y el &mut lexer, esta medio rraro ❓👀
+        let mut lexer = Lexer::new(input.to_string());
+        let mut parser = Parser::new(&mut lexer);
+        let program = parser.parse_program();
+
+        check_errors(parser);
+
+        assert_eq!(
+            program.statements.len(),
+            3,
+            "program.Statements does not contain 3 statements"
+        );
+
+        let mut statements = program.statements.iter();
+
+        for expected_statement in statements {
+            assert_eq!(&Stat::RET { token: Tk::RETURN }, expected_statement);
+        }
+    }
 
     #[test]
     fn test_let_statements() {
@@ -180,7 +237,7 @@ mod tests {
 
         for expected_identifier in tests {
             assert_eq!(
-                Some(&LetStatement {
+                Some(&Stat::LET {
                     token: Tk::LET,
                     name: expected_identifier,
                 }),
