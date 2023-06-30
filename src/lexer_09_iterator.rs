@@ -66,7 +66,7 @@ impl From<Tk> for String {
             Tk::EQ => "==".to_string(),
             Tk::NOTEQ => "!=".to_string(),
             //? special
-            Tk::IDENT(_, _) => todo!(),
+            Tk::IDENT(name, _) => name,
             Tk::INT(_, _) => todo!(),
             Tk::ILEGAL => todo!(),
             Tk::STR(_, _) => todo!(),

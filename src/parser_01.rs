@@ -1,5 +1,5 @@
 use crate::{
-    ast_01::{ProgramNode, Stt},
+    ast_01::{Exp, ProgramNode, Stt},
     lexer_09_iterator::Lexer,
     scanner_04_emojis_strings::Tk,
 };
@@ -92,6 +92,30 @@ impl<'a> Parser<'a> {
         };
 
         // TODO: We're skipping the expressions until we encounter a semicolon
+        match self.next_token {
+            Tk::IDENT(_, _) => self.next_token(),
+            Tk::INT(_, _) => self.next_token(),
+            _ => {
+                // todo: quizá aceptar un vector de tokens, para generar los errores
+                // todo: quizá usar un default
+                /*
+                 * idealmente, buscaría algo como =>
+                 * self.peek_error([Tk::IDENT, Tk::INT])
+                 *
+                 * output =>
+                 * expected next token to be IDENT or INT, got STATEMENT instead
+                 * o quizá más general
+                 *
+                 * self.peek_error(EXP)
+                 * expected next token to be EXPRESSION, got STATEMENT instead
+                 */
+                self.peek_error(Tk::IDENT("something".to_string(), 0));
+                self.peek_error(Tk::INT("something".to_string(), 0));
+                return None;
+            }
+        };
+
+        let result_id = self.current_token.clone();
 
         while self.current_token != Tk::SEMI {
             self.next_token();
@@ -100,6 +124,7 @@ impl<'a> Parser<'a> {
         Some(Stt::LET {
             token: result_token,
             name: result_name,
+            value: Exp::ID { token: result_id },
         })
     }
 
@@ -188,6 +213,8 @@ mod tests {
         let program = parser.parse_program();
 
         check_errors(parser);
+        println!("😀\n{}", program);
+        // println!("🧐\n{:?}", program);
 
         assert_eq!(
             program.statements.len(),
@@ -215,6 +242,7 @@ mod tests {
         let mut parser = Parser::new(&mut lexer);
         let program = parser.parse_program();
 
+        check_errors(parser);
         // println!("😀\n{}", program);
         println!("🧐\n{:?}", program);
         assert_eq!(
@@ -224,18 +252,24 @@ mod tests {
         );
 
         let tests = [
-            Tk::IDENT("x".to_string(), 2),
-            Tk::IDENT("y".to_string(), 3),
-            Tk::IDENT("foobar".to_string(), 4),
+            (Tk::IDENT("x".to_string(), 2), Tk::INT("5".to_string(), 2)),
+            (Tk::IDENT("y".to_string(), 3), Tk::INT("10".to_string(), 3)),
+            (
+                Tk::IDENT("foobar".to_string(), 4),
+                Tk::INT("838383".to_string(), 4),
+            ),
         ];
 
         let mut statements = program.statements.iter();
 
-        for expected_identifier in tests {
+        for (expected_identifier, expected_value) in tests {
             assert_eq!(
                 Some(&Stt::LET {
                     token: Tk::LET,
                     name: expected_identifier,
+                    value: Exp::ID {
+                        token: expected_value
+                    }
                 }),
                 statements.next()
             );

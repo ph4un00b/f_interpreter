@@ -32,10 +32,13 @@ pub struct ProgramNode {
     pub statements: Vec<Stt>,
 }
 
+// todo: checar, para un posioble refactor
+//? de lemigod, @see https://doc.rust-lang.org/std/str/trait.FromStr.html
+
 impl fmt::Display for ProgramNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for s in &self.statements {
-            writeln!(f, "{}", s)?;
+            write!(f, "{}", s)?;
         }
         Ok(())
     }
@@ -86,20 +89,14 @@ impl ASTNode for ProgramNode {
 
 #[derive(Debug, PartialEq)]
 pub enum Stt {
-    LET { token: Tk, name: Tk },
+    LET { token: Tk, name: Tk, value: Exp },
     RET { token: Tk },
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Exp {
-    //? token: the first token of the expression
-    LET { token: Tk, name: Tk },
 }
 
 impl ASTNode for Stt {
     fn token_literal(&self) -> String {
         match self {
-            Stt::LET { token, name } => String::from(token.clone()),
+            Stt::LET { token, name, value } => String::from(token.clone()),
             Stt::RET { token } => String::from(token.clone()),
         }
     }
@@ -108,11 +105,35 @@ impl ASTNode for Stt {
 impl fmt::Display for Stt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Stt::LET { token, name } => {
-                writeln!(f, "{} = jamon;", String::from(token.clone()))?;
+            Stt::LET { token, name, value } => {
+                let let_name = String::from(name.clone());
+
+                let let_val = match value {
+                    Exp::ID { token } => String::from(token.clone()),
+                };
+
+                write!(f, "let {} = {};", let_name, let_val)?;
             }
             Stt::RET { token } => {
-                writeln!(f, "{} jamon;", String::from(token.clone()))?;
+                write!(f, "{} jamon;", String::from(token.clone()))?;
+            }
+        };
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Exp {
+    //? token: the first token of the expression
+    ID { token: Tk },
+}
+
+impl fmt::Display for Exp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Exp::ID { token } => {
+                writeln!(f, "{}", String::from(token.clone()))?;
             }
         };
 
@@ -141,5 +162,47 @@ impl ASTNode for Identifier {
 impl Expression for Identifier {
     fn expression_node(&self) {
         todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    //? func TestString(t *testing.T) {
+    //?     program := &Program{
+    //?         Statements: []Statement{
+    //?             &LetStatement{
+    //?                 Token: token.Token{Type: token.LET, Literal: "let"},
+    //?                 Name: &Identifier{
+    //?                     Token: token.Token{Type: token.IDENT, Literal: "myVar"},
+    //?                     Value: "myVar",
+    //?                 },
+    //?                 Value: &Identifier{
+    //?                     Token: token.Token{Type: token.IDENT, Literal: "anotherVar"},
+    //?                     Value: "anotherVar",
+    //?                 },
+    //?             },
+    //?         },
+    //?     }
+    //?     if program.String() != "let myVar = anotherVar;" {
+    //?         t.Error("program.String() wrong. got=%q", program.String())
+    //?     }
+    //? }
+
+    #[test]
+    fn test_strings() {
+        let let_stt = Stt::LET {
+            token: Tk::LET,
+            name: Tk::IDENT("myVar".to_string(), 0),
+            value: Exp::ID {
+                token: Tk::IDENT("anotherVar".to_string(), 0),
+            },
+        };
+        // let let_val =
+        let statements = vec![let_stt];
+        let program = ProgramNode { statements };
+        assert_eq!("let myVar = anotherVar;".to_string(), program.to_string());
     }
 }
