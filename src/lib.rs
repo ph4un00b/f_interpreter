@@ -13,6 +13,8 @@ mod lexer_09_iterator;
 // mod scanner_03_emoji_as_token;
 mod ast_01;
 mod scanner_04_emojis_strings;
+//? pratt
+mod pratt_lexer_01;
 
 #[cfg(test)]
 mod tests {

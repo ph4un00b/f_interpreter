@@ -36,6 +36,7 @@ pub struct ProgramNode {
 //? de lemigod, @see https://doc.rust-lang.org/std/str/trait.FromStr.html
 
 impl fmt::Display for ProgramNode {
+    //todo: checar lo que dijo lemigod del format! y los buffers
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for s in &self.statements {
             write!(f, "{}", s)?;
@@ -170,29 +171,18 @@ mod tests {
 
     use super::*;
 
-    //? func TestString(t *testing.T) {
-    //?     program := &Program{
-    //?         Statements: []Statement{
-    //?             &LetStatement{
-    //?                 Token: token.Token{Type: token.LET, Literal: "let"},
-    //?                 Name: &Identifier{
-    //?                     Token: token.Token{Type: token.IDENT, Literal: "myVar"},
-    //?                     Value: "myVar",
-    //?                 },
-    //?                 Value: &Identifier{
-    //?                     Token: token.Token{Type: token.IDENT, Literal: "anotherVar"},
-    //?                     Value: "anotherVar",
-    //?                 },
-    //?             },
-    //?         },
-    //?     }
-    //?     if program.String() != "let myVar = anotherVar;" {
-    //?         t.Error("program.String() wrong. got=%q", program.String())
-    //?     }
-    //? }
-
     #[test]
     fn test_strings() {
+        /*
+         * In this test we construct the AST by hand.
+         * When writing tests for the parser we don’t,
+         * of course, but make assertions about the AST
+         * the parser produces.
+         * For demonstration purposes, this test shows us
+         * how we can add another easily readable layer of tests for
+         * our parser by just comparing the parser output with strings.
+         * That’s going to be especially handy when parsing expressions.
+         */
         let let_stt = Stt::LET {
             token: Tk::LET,
             name: Tk::IDENT("myVar".to_string(), 0),
@@ -200,7 +190,7 @@ mod tests {
                 token: Tk::IDENT("anotherVar".to_string(), 0),
             },
         };
-        // let let_val =
+
         let statements = vec![let_stt];
         let program = ProgramNode { statements };
         assert_eq!("let myVar = anotherVar;".to_string(), program.to_string());
