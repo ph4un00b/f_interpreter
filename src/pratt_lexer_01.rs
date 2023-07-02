@@ -106,6 +106,11 @@ impl Scanner {
         } else {
             self.source_code[self.next_position]
         };
+
+        // let vec = vec![self.current_byte];
+        // let name = String::from_utf8(vec).unwrap();
+        // println!("=> ch: {}", name);
+
         self.current_position = self.next_position;
         self.next_position += 1;
     }
@@ -132,15 +137,20 @@ impl Scanner {
             b'+' => Tk::PLUS("+".to_string(), self.current_line),
             b'-' => Tk::MINUS("-".to_string(), self.current_line),
             b'*' => Tk::ASTERISK("*".to_string(), self.current_line),
-            b')' => Tk::RPAREN(")".to_string(), self.current_line),
             b'(' => Tk::LPAREN("(".to_string(), self.current_line),
+            b')' => Tk::RPAREN(")".to_string(), self.current_line),
             b',' => Tk::COMMA(",".to_string(), self.current_line),
             b'A'..=b'Z' | b'a'..=b'z' | b'_' => {
                 let start = self.current_position;
-                while self.current_byte.is_ascii_alphabetic() {
+                while self.current_byte.is_ascii_alphabetic()
+                    && !self.next_byte().is_ascii_whitespace()
+                    && self.next_byte() != b')'
+                    && self.next_byte() != b'('
+                {
                     self.consume_byte();
                 }
-                let vec = self.source_code[start..self.current_position].to_vec();
+
+                let vec = self.source_code[start..self.current_position + 1].to_vec();
                 let name = String::from_utf8(vec).unwrap();
 
                 Tk::NAME(name, self.current_line)
@@ -150,24 +160,38 @@ impl Scanner {
         };
 
         self.consume_byte();
+        // println!("tk: {:?}", tok);
         tok
+    }
+
+    fn next_byte(&self) -> Byte {
+        if self.next_position >= self.source_code.len() {
+            0
+        } else {
+            self.source_code[self.next_position]
+        }
     }
 }
 
+/*
+ * @see http://journal.stuffwithstuff.com/2011/03/19/pratt-parsers-expression-parsing-made-easy/
+ */
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn it_works() {
-        let input = "=+(),";
+        let input = "from + offset(time)";
+        // let input = "(time)";
 
         let tests = [
-            Tk::ASSIGN("=".to_string(), 1),
+            Tk::NAME("from".to_string(), 1),
             Tk::PLUS("+".to_string(), 1),
+            Tk::NAME("offset".to_string(), 1),
             Tk::LPAREN("(".to_string(), 1),
+            Tk::NAME("time".to_string(), 1),
             Tk::RPAREN(")".to_string(), 1),
-            Tk::COMMA(",".to_string(), 1),
             Tk::EOF("0".to_string(), 1),
         ];
 
