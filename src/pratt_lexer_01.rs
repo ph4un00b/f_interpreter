@@ -14,7 +14,7 @@
  * @see https://craftinginterpreters.com/scanning.html
  */
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Hash, Eq)]
 pub enum Tk {
     LPAREN(String, i32),
     RPAREN(String, i32),
@@ -31,10 +31,11 @@ pub enum Tk {
     COLON(String, i32),
     NAME(String, i32),
     EOF(String, i32),
-    ILEGAL(String, i32),
+    // ILEGAL(String, i32),
+    ILEGAL,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Lexer {
     pub had_error: bool,
     pub had_runtime_error: bool,
@@ -61,7 +62,7 @@ impl Lexer {
 
 pub type Byte = u8;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Scanner {
     source_code: Vec<Byte>,
     tokens: Vec<Tk>,
@@ -146,6 +147,7 @@ impl Scanner {
                     && !self.next_byte().is_ascii_whitespace()
                     && self.next_byte() != b')'
                     && self.next_byte() != b'('
+                    && self.next_byte() != b'\0'
                 {
                     self.consume_byte();
                 }
@@ -156,7 +158,8 @@ impl Scanner {
                 Tk::NAME(name, self.current_line)
             }
             0 => Tk::EOF("0".to_string(), self.current_line),
-            _ => Tk::ILEGAL("_".to_string(), self.current_line),
+            // _ => Tk::ILEGAL("_".to_string(), self.current_line),
+            _ => Tk::ILEGAL,
         };
 
         self.consume_byte();
@@ -183,7 +186,6 @@ mod tests {
     #[test]
     fn it_works() {
         let input = "from + offset(time)";
-        // let input = "(time)";
 
         let tests = [
             Tk::NAME("from".to_string(), 1),
@@ -192,6 +194,26 @@ mod tests {
             Tk::LPAREN("(".to_string(), 1),
             Tk::NAME("time".to_string(), 1),
             Tk::RPAREN(")".to_string(), 1),
+            Tk::EOF("0".to_string(), 1),
+        ];
+
+        let mut lex = Lexer::new(input.into());
+
+        for expected_token in tests.iter() {
+            // todo: #clone necesario❓
+            assert_eq!(lex.next(), Some(expected_token.clone()));
+        }
+    }
+
+    #[test]
+    fn it_works_2() {
+        let input = "-a + b";
+
+        let tests = [
+            Tk::MINUS("-".to_string(), 1),
+            Tk::NAME("a".to_string(), 1),
+            Tk::PLUS("+".to_string(), 1),
+            Tk::NAME("b".to_string(), 1),
             Tk::EOF("0".to_string(), 1),
         ];
 
