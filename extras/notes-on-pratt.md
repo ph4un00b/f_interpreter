@@ -19,7 +19,7 @@
 - register
 - get-precedence? or default to zero
 
-# minimal structure
+# Parser minimal structure
   - tokens
   - iterator for tokens
   - hashmap of prefixes operators

@@ -7,8 +7,11 @@
     "LPAREN",
     "mixfix",
     "NOTEQ",
+    "parselet",
+    "Parselet",
     "postamble",
     "pratt",
+    "PREOPERATOR",
     "Putback",
     "RPAREN",
     "typechecker",
@@ -19,6 +22,7 @@
     "lex",
     "cli",
     "scanner",
-    "parser"
+    "parser",
+    "🧪"
   ]
 }
