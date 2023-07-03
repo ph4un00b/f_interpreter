@@ -6,6 +6,7 @@ use crate::pratt_lexer_01::{Lexer, Tk};
 enum Parselet {
     NAME,
     PREFIX,
+    POSTFIX,
     BINARY,
 }
 
@@ -15,7 +16,7 @@ enum Expression {
         kind: Parselet,
         token: Tk,
     },
-    PREOPERATOR {
+    PREOP {
         kind: Parselet,
         token: Tk,
         operand: Box<Expression>,
@@ -26,7 +27,12 @@ enum Expression {
         token: Tk,
         right: Box<Expression>,
     },
-    // NONE,
+    POSTOP {
+        kind: Parselet,
+        left: Box<Expression>,
+        token: Tk,
+    },
+    NONE,
 }
 
 trait Pratt {
@@ -90,7 +96,8 @@ impl Pratt for Parser {
             Tk::PLUS(_, _) | Tk::MINUS(_, _) | Tk::TILDE(_, _) | Tk::BANG(_, _) => {
                 let name_token = self.current_token.clone();
                 self.consume_token();
-                Expression::PREOPERATOR {
+
+                Expression::PREOP {
                     kind: Parselet::PREFIX,
                     token: name_token,
                     operand: Box::new(self.parse_next_expression()),
@@ -111,6 +118,13 @@ impl Pratt for Parser {
                     right: Box::new(self.parse_next_expression()),
                 }
             }
+            // * POSTFIX
+            Tk::BANG(_, _) => Expression::POSTOP {
+                kind: Parselet::POSTFIX,
+                left: Box::new(left),
+                token: self.next_token.clone(),
+            },
+            // * MIXFIX
             _ => return left,
         };
 
@@ -156,7 +170,7 @@ mod tests {
         let parsed = parser.parse_next_expression();
         assert_eq!(
             parsed,
-            Expression::PREOPERATOR {
+            Expression::PREOP {
                 kind: Parselet::PREFIX,
                 token: Tk::MINUS("-".to_string(), 1),
                 operand: Box::new(Expression::NAME {
@@ -168,35 +182,61 @@ mod tests {
     }
 
     #[test]
-    fn it_works_in_infixes() {
-        let input = "-a + b";
+    fn it_works_with_infixes() {
+        let unary_ops = [
+            ("-a + b", Tk::PLUS("+".to_string(), 1)),
+            ("-a - b", Tk::MINUS("-".to_string(), 1)),
+        ];
 
-        let lexer = Lexer::new(input.into());
-        let mut parser = Parser::new(lexer);
+        for (input, expected_token) in unary_ops {
+            let lexer = Lexer::new(input.into());
+            let mut parser = Parser::new(lexer);
+            let parsed = parser.parse_next_expression();
+            assert_eq!(
+                parsed,
+                Expression::PREOP {
+                    kind: Parselet::PREFIX,
+                    token: Tk::MINUS("-".to_string(), 1),
+                    operand: Box::new(Expression::OPERATOR {
+                        kind: Parselet::BINARY,
+                        left: Box::new(Expression::NAME {
+                            kind: Parselet::PREFIX,
+                            token: Tk::NAME("a".to_string(), 1)
+                        }),
+                        token: Tk::NAME("a".to_string(), 1),
+                        right: Box::new(Expression::PREOP {
+                            kind: Parselet::PREFIX,
+                            token: expected_token,
+                            operand: Box::new(Expression::NAME {
+                                kind: Parselet::PREFIX,
+                                token: Tk::NAME("b".to_string(), 1)
+                            })
+                        })
+                    })
+                }
+            );
+        }
+    }
 
-        let parsed = parser.parse_next_expression();
-        assert_eq!(
-            parsed,
-            Expression::PREOPERATOR {
-                kind: Parselet::PREFIX,
-                token: Tk::MINUS("-".to_string(), 1),
-                operand: Box::new(Expression::OPERATOR {
-                    kind: Parselet::BINARY,
+    #[test]
+    fn it_works_with_postfixes() {
+        let unary_ops = [("a!", Tk::BANG("!".to_string(), 1))];
+
+        for (input, expected_token) in unary_ops {
+            let lexer = Lexer::new(input.into());
+            let mut parser = Parser::new(lexer);
+            let parsed = parser.parse_next_expression();
+            assert_eq!(
+                parsed,
+                Expression::POSTOP {
+                    kind: Parselet::POSTFIX,
                     left: Box::new(Expression::NAME {
                         kind: Parselet::PREFIX,
                         token: Tk::NAME("a".to_string(), 1)
                     }),
-                    token: Tk::NAME("a".to_string(), 1),
-                    right: Box::new(Expression::PREOPERATOR {
-                        kind: Parselet::PREFIX,
-                        token: Tk::PLUS("+".to_string(), 1),
-                        operand: Box::new(Expression::NAME {
-                            kind: Parselet::PREFIX,
-                            token: Tk::NAME("b".to_string(), 1)
-                        })
-                    })
-                })
-            }
-        );
+                    token: expected_token
+                }
+            );
+        }
     }
 }
