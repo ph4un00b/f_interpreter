@@ -145,6 +145,7 @@ impl Scanner {
                 let start = self.current_position;
                 while self.current_byte.is_ascii_alphabetic()
                     && !self.next_byte().is_ascii_whitespace()
+                    && self.next_byte() != b'!'
                     && self.next_byte() != b')'
                     && self.next_byte() != b'('
                     && self.next_byte() != b'\0'
@@ -214,6 +215,24 @@ mod tests {
             Tk::NAME("a".to_string(), 1),
             Tk::PLUS("+".to_string(), 1),
             Tk::NAME("b".to_string(), 1),
+            Tk::EOF("0".to_string(), 1),
+        ];
+
+        let mut lex = Lexer::new(input.into());
+
+        for expected_token in tests.iter() {
+            // todo: #clone necesario❓
+            assert_eq!(lex.next(), Some(expected_token.clone()));
+        }
+    }
+
+    #[test]
+    fn it_works_3() {
+        let input = "a!";
+
+        let tests = [
+            Tk::NAME("a".to_string(), 1),
+            Tk::BANG("!".to_string(), 1),
             Tk::EOF("0".to_string(), 1),
         ];
 
