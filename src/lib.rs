@@ -15,7 +15,8 @@ mod ast_01;
 mod scanner_04_emojis_strings;
 //? pratt
 mod pratt_lexer_01;
-mod pratt_parser_01prefix;
+// mod pratt_parser_01prefix;
+mod pratt_parser_02_infix;
 
 #[cfg(test)]
 mod tests {
