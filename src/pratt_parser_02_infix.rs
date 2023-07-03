@@ -8,6 +8,7 @@ enum Parselet {
     PREFIX,
     POSTFIX,
     BINARY,
+    COND,
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -32,6 +33,13 @@ enum Expression {
         left: Box<Expression>,
         token: Tk,
     },
+    BRANCH {
+        kind: Parselet,
+        left: Box<Expression>,
+        then: Box<Expression>,
+        otherwise: Box<Expression>,
+    },
+    // * for testing
     NONE,
 }
 
@@ -107,6 +115,7 @@ impl Pratt for Parser {
         };
 
         let infix = match self.next_token {
+            // * INFIX
             Tk::PLUS(_, _) | Tk::MINUS(_, _) => {
                 let name_token = self.current_token.clone();
                 self.consume_token();
@@ -125,6 +134,22 @@ impl Pratt for Parser {
                 token: self.next_token.clone(),
             },
             // * MIXFIX
+            Tk::QUESTION(_, _) => {
+                self.consume_token();
+                self.consume_token();
+                let then_branch = self.parse_next_expression();
+                self.consume_token();
+                self.consume_token();
+                let otherwise_branch = self.parse_next_expression();
+
+                Expression::BRANCH {
+                    kind: Parselet::COND,
+                    left: Box::new(left),
+                    then: Box::new(then_branch),
+                    otherwise: Box::new(otherwise_branch),
+                }
+            }
+            // * PREFIX
             _ => return left,
         };
 
@@ -235,6 +260,72 @@ mod tests {
                         token: Tk::NAME("a".to_string(), 1)
                     }),
                     token: expected_token
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn it_works_with_conditional() {
+        let unary_ops = [("a ? b : c", Tk::BANG("!".to_string(), 1))];
+
+        for (input, expected_token) in unary_ops {
+            let lexer = Lexer::new(input.into());
+            let mut parser = Parser::new(lexer);
+            let parsed = parser.parse_next_expression();
+            assert_eq!(
+                parsed,
+                Expression::BRANCH {
+                    kind: Parselet::COND,
+                    left: Box::new(Expression::NAME {
+                        kind: Parselet::PREFIX,
+                        token: Tk::NAME("a".to_string(), 1)
+                    }),
+                    then: Box::new(Expression::NAME {
+                        kind: Parselet::PREFIX,
+                        token: Tk::NAME("b".to_string(), 1)
+                    }),
+                    otherwise: Box::new(Expression::NAME {
+                        kind: Parselet::PREFIX,
+                        token: Tk::NAME("c".to_string(), 1)
+                    })
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn it_works_with_complex_conditional() {
+        let unary_ops = [("a ? b! : -c", Tk::BANG("!".to_string(), 1))];
+
+        for (input, expected_token) in unary_ops {
+            let lexer = Lexer::new(input.into());
+            let mut parser = Parser::new(lexer);
+            let parsed = parser.parse_next_expression();
+            assert_eq!(
+                parsed,
+                Expression::BRANCH {
+                    kind: Parselet::COND,
+                    left: Box::new(Expression::NAME {
+                        kind: Parselet::PREFIX,
+                        token: Tk::NAME("a".to_string(), 1)
+                    }),
+                    then: Box::new(Expression::POSTOP {
+                        kind: Parselet::POSTFIX,
+                        left: Box::new(Expression::NAME {
+                            kind: Parselet::PREFIX,
+                            token: Tk::NAME("b".to_string(), 1)
+                        }),
+                        token: Tk::BANG("!".to_string(), 1)
+                    }),
+                    otherwise: Box::new(Expression::PREOP {
+                        kind: Parselet::PREFIX,
+                        token: Tk::MINUS("-".to_string(), 1),
+                        operand: Box::new(Expression::NAME {
+                            kind: Parselet::PREFIX,
+                            token: Tk::NAME("c".to_string(), 1)
+                        })
+                    })
                 }
             );
         }

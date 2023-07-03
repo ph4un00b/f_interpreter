@@ -132,6 +132,8 @@ impl Scanner {
 
         let tok = match self.current_byte {
             //? operators
+            b'?' => Tk::QUESTION("?".to_string(), self.current_line),
+            b':' => Tk::COLON(":".to_string(), self.current_line),
             b'=' => Tk::ASSIGN("=".to_string(), self.current_line),
             b'!' => Tk::BANG("!".to_string(), self.current_line),
             b'/' => Tk::SLASH("/".to_string(), self.current_line),
@@ -233,6 +235,29 @@ mod tests {
         let tests = [
             Tk::NAME("a".to_string(), 1),
             Tk::BANG("!".to_string(), 1),
+            Tk::EOF("0".to_string(), 1),
+        ];
+
+        let mut lex = Lexer::new(input.into());
+
+        for expected_token in tests.iter() {
+            // todo: #clone necesario❓
+            assert_eq!(lex.next(), Some(expected_token.clone()));
+        }
+    }
+
+    #[test]
+    fn it_works_4() {
+        let input = "b ? c! : -d";
+
+        let tests = [
+            Tk::NAME("b".to_string(), 1),
+            Tk::QUESTION("?".to_string(), 1),
+            Tk::NAME("c".to_string(), 1),
+            Tk::BANG("!".to_string(), 1),
+            Tk::COLON(":".to_string(), 1),
+            Tk::MINUS("-".to_string(), 1),
+            Tk::NAME("d".to_string(), 1),
             Tk::EOF("0".to_string(), 1),
         ];
 
