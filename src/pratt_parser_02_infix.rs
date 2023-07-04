@@ -6,7 +6,6 @@ use crate::pratt_lexer_01::{Lexer, Tk};
 enum Parselet {
     ID,
     UNARY,
-    // POSTFIX,
     BINARY,
     BRANCH,
 }
@@ -39,8 +38,6 @@ enum Expression {
         then: Box<Expression>,
         otherwise: Box<Expression>,
     },
-    // // * for testing
-    // NONE,
 }
 
 impl fmt::Display for Expression {
@@ -119,14 +116,14 @@ enum Precedence {
     PRODUCT,
     PREFIX,
     POSTFIX,
-    //? public static final int ASSIGNMENT  = 1;
-    //? public static final int CONDITIONAL = 2;
-    //? public static final int SUM         = 3;
-    //? public static final int PRODUCT     = 4;
-    //? public static final int EXPONENT    = 5;
-    //? public static final int PREFIX      = 6;
-    //? public static final int POSTFIX     = 7;
-    //? public static final int CALL        = 8;
+    //? ASSIGNMENT  = 1;
+    //? CONDITIONAL = 2;
+    //? SUM         = 3;
+    //? PRODUCT     = 4;
+    //? EXPONENT    = 5;
+    //? PREFIX      = 6;
+    //? POSTFIX     = 7;
+    //? CALL        = 8;
 }
 
 impl From<Tk> for Precedence {
@@ -174,7 +171,7 @@ impl Parser {
         p
     }
 
-    fn parse_prefix_exp(&mut self) -> Expression {
+    fn parse_prefix(&mut self) -> Expression {
         let name_token = self.current_token.clone();
         self.consume_token();
 
@@ -186,7 +183,7 @@ impl Parser {
         }
     }
 
-    fn parse_id_exp(&mut self) -> Expression {
+    fn parse_identifier(&mut self) -> Expression {
         //? id parselet should be considered unary❓
         Expression::NAME {
             kind: Parselet::ID,
@@ -194,7 +191,7 @@ impl Parser {
         }
     }
 
-    fn parse_infix_exp(&mut self, left: &Expression) -> Expression {
+    fn parse_infix(&mut self, left: &Expression) -> Expression {
         // * It’s important to note that left is our already parsed expression
         // * saves the precedence, advances the
         // * tokens and calls #parse_next_expression
@@ -214,19 +211,118 @@ impl Parser {
 }
 
 impl Pratt for Parser {
+    // * The algorithm behind the parseExpression method and its combination of parsing functions
+    // * and precedences is fully described by Vaughan Pratt in his “Top Down Operator Precedence”
+    // * paper.
+    /*
+     * A + B + C;
+     * The big challenge here is not to represent every operator and operand
+     * in the resulting AST, but to nest the nodes of the AST correctly.
+     * What we want is an AST Program Node that (serialized as a string) looks like this:
+     * ((A + B) + C), esto es que sea asociativo hacia la izquierda 💃.
+     */
     fn parse_next_expression(&mut self, precedence: Precedence) -> Expression {
-        println!("parsing - {:?} - pre {:?}", self.current_token, precedence);
+        /*
+         *✨ FIRST CALL ❗
+         * Here is what happens when we parse A + B + C;:
+         * calls 🐋parse_next_expression(DEFAULT).
+         *
+         * #current_token   -> A
+         * #next_token  	-> ➕
+         */
+        /*
+         * ✨ SECOND CALL ❗
+         * The first thing 🐋parse_next_expression does again is to look for a
+         *  prefixParseFn for p.curToken. And again it’s parseIntegerLiteral
+         *
+         * #current_token   -> B
+         * #next_token  	-> ➕
+         */
+        // println!("parsing - {:?} - pre {:?}", self.current_token, precedence);
 
-        // * null denotations aka nuds😏
+        /*
+         * The first thing #parse_next_expression then does is to check whether
+         * there is a PARSE FUNCTION associated with the current TOKEN,
+         *  which is a TK#NAME. And, yes, there is: #parse_identifier.
+         *  So it calls #parse_identifier, which returns an EXPRESSION.
+         *  match assigns this to left_expr.
+         */
+        //? null denotations aka nuds😏
         let mut left_expr = match self.current_token {
-            Tk::NAME(_, _) => self.parse_id_exp(),
-            Tk::MINUS(_, _) => self.parse_prefix_exp(),
-            Tk::BANG(_, _) => self.parse_prefix_exp(),
-            _ => panic!("❌illegal prefix expression {:?}", self.current_token),
+            Tk::NAME(_, _) => self.parse_identifier(),
+            Tk::MINUS(_, _) => self.parse_prefix(),
+            Tk::BANG(_, _) => self.parse_prefix(),
+            _ => panic!("\n❌ illegal prefix expression {:?}", self.current_token),
         };
 
+        // while self.next_token != Tk::EOF(_, _) && precedence < Precedence::from(self.next_token.clone()) {
+        /*
+         * 👀 This condition checks if the left-binding power of the next operator/token
+         * is higher than our current right-binding power.
+         * If it is, what we parsed so far gets “sucked in” by the next operator,
+         *  from left to right, and ends up being passed to the
+         * infix parse function of the next operator.
+         */
+        /*
+         * Precedence::from(self.next_token.clone()) (which returns the precedence of the + token)
+         * is higher than the argument passed to parseExpression, which is DEFAULT.
+         * Here are our defined precedences again to refresh our memory:
+         */
+        //* ASSIGNMENT  = 1;
+        //* BRACH       = 2;
+        //* SUM         = 3;
+        //* PRODUCT     = 4;
+        //* EXPONENT    = 5;
+        //* PREFIX      = 6;
+        //* POSTFIX     = 7;
+        //* CALL        = 8;
+
+        //* ✨ FIRST CALL ❗
+        //* So the condition evaluates to true and 🐋parse_next_expression
+        //* executes the body of the loop.
+        /*
+         * ✨ SECOND CALL ❗
+         * But now the condition of the while doesn’t evaluate to true:
+         * precedence (the argument passed to 🐋parse_next_expression) is the precedence
+         * of the first ➕ operator in 1 + 2 + 3, which is not smaller than the
+         * precedence of #next_token, the second ➕ operator. They are equal.
+         *
+         * then EXPRESSION representing the B in left_expr is returned
+         */
+        //? while RIGHT_BINDING_POWER < LEFT_BINDING_POWER
+        //? THEN suck it to the LEFT SIDE
         while precedence < Precedence::from(self.next_token.clone()) {
-            // * left denotations aka leds
+            /*
+             * ✨ FIRST LOOP ❗
+             * Now it verifies if there is a PARSING FUNCTION for #next_token, which is
+             * TRUE defined on the match below.
+             * ⁉❓ @phau: aquí lo cambie por que muchos implementaban un hash_map
+             * donde mapeaban un token a una función, en rust seguro podría hacer
+             * un mapeo tipo token a un function pointer pero me pareció algo elaborado
+             * en este momento, aunque queda un poco repetido la lógica del match, no
+             * lo veo mal por ahora 👀.
+             */
+            /*
+             * ✨ SECOND LOOP ❗
+             *  we’re back in the outer-most call to 🐋parse_next_expression,
+             *  where precedence is still DEFAULT from the initial call
+             *
+             * This still evaluates to true, since precedence is DEFAULT and
+             * #next_token now returns the precedence of the
+             * second ➕ in our expression, which is higher
+             *
+             * The difference is that now left_Expr is not an EXPRESSION
+             * representing the A, but the INFIX EXPRESSION
+             * returned representing (A + B).
+             */
+            /*
+             * ✨ THIRD LOOP ❗
+             * The condition of the while evaluates to false
+             *
+             * Precedence::from(self.next_token.clone())
+             * method returns DEFAULT as the value
+             */
+            //? left denotations aka leds
             match self.next_token {
                 Tk::PLUS(_, _) => true,
                 Tk::MINUS(_, _) => true,
@@ -238,20 +334,70 @@ impl Pratt for Parser {
             };
 
             self.consume_token();
+            /*
+             * ✨ FIRST LOOP ❗
+             * Before calling it and assigning its return value to
+             * left_expr (reusing the left_expr variable!)
+             * it advances the tokens so they now look like this:
+             *
+             * A ➕ B ➕ C;
+             * #current_token   -> ➕
+             * #next_token  	-> B
+             */
+
+            /*
+             * ✨ SECOND LOOP ❗
+             * A ➕ B ➕ C;
+             * #current_token   -> ➕
+             * #next_token  	-> C
+             */
 
             left_expr = match self.current_token {
-                // * infixes
-                Tk::PLUS(_, _) => self.parse_infix_exp(&left_expr),
-                Tk::MINUS(_, _) => self.parse_infix_exp(&left_expr),
-                Tk::ASTERISK(_, _) => self.parse_infix_exp(&left_expr),
-                Tk::SLASH(_, _) => self.parse_infix_exp(&left_expr),
-                // * postfixes
+                //? infixes
+                Tk::PLUS(_, _) => {
+                    let name_token = self.current_token.clone();
+                    //* saves the precedence of 🐋current_token (the first ➕ token!),
+                    let current_precedence = Precedence::from(self.current_token.clone());
+                    //* advances the tokens and calls 🐋parse_next_expression
+                    //* - passing in the just saved precedence.
+                    self.consume_token();
+                    /*
+                     * ✨ FIRST LOOP ❗
+                     * A ➕ B ➕ C;
+                     * #current_token   -> B
+                     * #next_token  	-> ➕
+                     */
+                    /*
+                     * ✨ SECOND LOOP ❗
+                     * A ➕ B ➕ C;
+                     * #current_token   -> C
+                     * #next_token  	-> EOF
+                     */
+                    Expression::OPERATOR {
+                        kind: Parselet::BINARY,
+                        left: Box::new(left_expr),
+                        operator: name_token,
+                        //* ✨ FIRST LOOP ❗
+                        //* So now 🐋parse_next_expression is called the second time❗
+                        //* the return-value of 🐋parse_next_expression the B expression
+                        //* is assigned to the Right field of the newly constructed Expression.
+                        /*
+                         * ✨ SECOND LOOP ❗
+                         * the return-value of 🐋parse_next_expression the C expression
+                         */
+                        right: Box::new(self.parse_next_expression(current_precedence)),
+                    }
+                }
+                Tk::MINUS(_, _) => self.parse_infix(&left_expr),
+                Tk::ASTERISK(_, _) => self.parse_infix(&left_expr),
+                Tk::SLASH(_, _) => self.parse_infix(&left_expr),
+                //? postfixes
                 Tk::BANG(_, _) => Expression::POSTOP {
                     kind: Parselet::UNARY,
                     operand: Box::new(left_expr),
                     operator: self.current_token.clone(),
                 },
-                // * branch
+                //? branch
                 Tk::QUESTION(_, _) => {
                     self.consume_token();
                     let then_branch = self.parse_next_expression(Precedence::DEFAULT);
@@ -271,7 +417,12 @@ impl Pratt for Parser {
                 _ => panic!("no debe llegar aquí!❌"),
             }
         }
-
+        // * After all this, at the end of the loop-body, left_Exp looks like this
+        // * The goal is to have expressions involving operators with a
+        // * higher precedence to be deeper in the tree than expressions
+        // * with lower precedence operators. This is accomplished by the
+        // * precedence value (the argument)
+        // * ((A + B) + C)
         left_expr
     }
 
@@ -383,7 +534,7 @@ mod tests {
     }
 
     #[test]
-    fn it_works_with_debug_infixes() {
+    fn it_works_with_debug_strings() {
         let tests = [
             ("-a + b", "((-a) + b)"),
             ("-a * b", "((-a) * b)"),
