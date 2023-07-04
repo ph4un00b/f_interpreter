@@ -28,11 +28,11 @@ enum Expression {
         operator: Tk,
         right: Box<Expression>,
     },
-    // POSTOP {
-    //     kind: Parselet,
-    //     left: Box<Expression>,
-    //     token: Tk,
-    // },
+    POSTOP {
+        kind: Parselet,
+        operand: Box<Expression>,
+        operator: Tk,
+    },
     // BRANCH {
     //     kind: Parselet,
     //     left: Box<Expression>,
@@ -75,6 +75,16 @@ impl fmt::Display for Expression {
                     right.to_string()
                 )?;
             }
+            Expression::POSTOP {
+                kind,
+                operand,
+                operator,
+            } => write!(
+                f,
+                "({}{})",
+                operand.to_string(),
+                String::from(operator.clone()),
+            )?,
         };
 
         Ok(())
@@ -95,6 +105,15 @@ enum Precedence {
     SUM,
     PRODUCT,
     PREFIX,
+    POSTFIX,
+    //? public static final int ASSIGNMENT  = 1;
+    //? public static final int CONDITIONAL = 2;
+    //? public static final int SUM         = 3;
+    //? public static final int PRODUCT     = 4;
+    //? public static final int EXPONENT    = 5;
+    //? public static final int PREFIX      = 6;
+    //? public static final int POSTFIX     = 7;
+    //? public static final int CALL        = 8;
 }
 
 impl From<Tk> for Precedence {
@@ -104,6 +123,7 @@ impl From<Tk> for Precedence {
             Tk::MINUS(_, _) => Precedence::SUM,
             Tk::ASTERISK(_, _) => Precedence::PRODUCT,
             Tk::SLASH(_, _) => Precedence::PRODUCT,
+            Tk::BANG(_, _) => Precedence::POSTFIX,
             _ => Precedence::DEFAULT,
         }
     }
@@ -198,6 +218,7 @@ impl Pratt for Parser {
                 Tk::MINUS(_, _) => true,
                 Tk::ASTERISK(_, _) => true,
                 Tk::SLASH(_, _) => true,
+                Tk::BANG(_, _) => true,
                 _ => return left_expr,
             };
 
@@ -209,6 +230,12 @@ impl Pratt for Parser {
                 Tk::MINUS(_, _) => self.parse_infix_exp(&left_expr),
                 Tk::ASTERISK(_, _) => self.parse_infix_exp(&left_expr),
                 Tk::SLASH(_, _) => self.parse_infix_exp(&left_expr),
+                // * postfixes
+                Tk::BANG(_, _) => Expression::POSTOP {
+                    kind: Parselet::UNARY,
+                    operand: Box::new(left_expr),
+                    operator: self.current_token.clone(),
+                },
                 _ => panic!("no debe llegar aquí!❌"),
             }
         }
@@ -326,6 +353,7 @@ mod tests {
     #[test]
     fn it_works_with_debug_infixes() {
         let tests = [
+            ("-a + b", "((-a) + b)"),
             ("-a * b", "((-a) * b)"),
             ("!-a", "(!(-a))"),
             ("a + b + c", "((a + b) + c)"),
@@ -334,6 +362,8 @@ mod tests {
             ("a * b / c", "((a * b) / c)"),
             ("a + b / c", "(a + (b / c))"),
             ("a + b * c + d / e - f", "(((a + (b * c)) + (d / e)) - f)"),
+            ("a!", "(a!)"),
+            ("-a!", "(-(a!))"),
         ];
 
         for (input, expected) in tests {
