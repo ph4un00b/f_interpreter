@@ -103,6 +103,7 @@ impl From<Tk> for Precedence {
             Tk::PLUS(_, _) => Precedence::SUM,
             Tk::MINUS(_, _) => Precedence::SUM,
             Tk::ASTERISK(_, _) => Precedence::PRODUCT,
+            Tk::SLASH(_, _) => Precedence::PRODUCT,
             _ => Precedence::DEFAULT,
         }
     }
@@ -196,6 +197,7 @@ impl Pratt for Parser {
                 Tk::PLUS(_, _) => true,
                 Tk::MINUS(_, _) => true,
                 Tk::ASTERISK(_, _) => true,
+                Tk::SLASH(_, _) => true,
                 _ => return left_expr,
             };
 
@@ -206,6 +208,7 @@ impl Pratt for Parser {
                 Tk::PLUS(_, _) => self.parse_infix_exp(&left_expr),
                 Tk::MINUS(_, _) => self.parse_infix_exp(&left_expr),
                 Tk::ASTERISK(_, _) => self.parse_infix_exp(&left_expr),
+                Tk::SLASH(_, _) => self.parse_infix_exp(&left_expr),
                 _ => panic!("no debe llegar aquí!❌"),
             }
         }
@@ -322,7 +325,14 @@ mod tests {
 
     #[test]
     fn it_works_with_debug_infixes() {
-        let tests = [("-a * b", "((-a) * b)")];
+        let tests = [
+            ("-a * b", "((-a) * b)"),
+            ("!-a", "(!(-a))"),
+            ("a + b + c", "((a + b) + c)"),
+            ("a + b - c", "((a + b) - c)"),
+            ("a * b * c", "((a * b) * c)"),
+            ("a * b / c", "((a * b) / c)"),
+        ];
 
         for (input, expected) in tests {
             let lexer = Lexer::new(input.into());
