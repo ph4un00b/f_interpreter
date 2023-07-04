@@ -332,6 +332,8 @@ mod tests {
             ("a + b - c", "((a + b) - c)"),
             ("a * b * c", "((a * b) * c)"),
             ("a * b / c", "((a * b) / c)"),
+            ("a + b / c", "(a + (b / c))"),
+            ("a + b * c + d / e - f", "(((a + (b * c)) + (d / e)) - f)"),
         ];
 
         for (input, expected) in tests {
