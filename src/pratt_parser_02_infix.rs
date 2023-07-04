@@ -12,6 +12,7 @@ enum Parselet {
 
 #[derive(PartialEq, Debug, Clone)]
 enum Expression {
+    NONE,
     NAME {
         kind: Parselet,
         token: Tk,
@@ -37,6 +38,10 @@ enum Expression {
         left: Box<Expression>,
         then: Box<Expression>,
         otherwise: Box<Expression>,
+    },
+    COMPARISON {
+        kind: Parselet,
+        operands: Vec<Box<Expression>>,
     },
 }
 
@@ -94,6 +99,21 @@ impl fmt::Display for Expression {
                 then.to_string(),
                 otherwise.to_string(),
             )?,
+            Expression::COMPARISON { kind, operands } => {
+                //? a < b
+                //? a < b < c
+                //? a < b < c < d
+                write!(f, "(")?;
+                for (i, op) in operands.iter().enumerate() {
+                    if i == 0 {
+                        write!(f, "{}", op.to_string(),)?;
+                    } else {
+                        write!(f, " < {}", op.to_string(),)?;
+                    }
+                }
+                write!(f, ")")?;
+            }
+            Expression::NONE => write!(f, "__test__")?,
         };
 
         Ok(())
@@ -112,6 +132,7 @@ enum Precedence {
     //? CALL // myFunction(X)
     DEFAULT,
     BRANCH,
+    COMPARE,
     SUM,
     PRODUCT,
     PREFIX,
@@ -135,7 +156,17 @@ impl From<Tk> for Precedence {
             Tk::SLASH(_, _) => Precedence::PRODUCT,
             Tk::BANG(_, _) => Precedence::POSTFIX,
             Tk::QUESTION(_, _) => Precedence::BRANCH,
-            _ => Precedence::DEFAULT,
+            Tk::LTHAN(_, _) => Precedence::COMPARE,
+            Tk::EOF(_, _) => Precedence::DEFAULT,
+            Tk::LPAREN(_, _) => Precedence::DEFAULT,
+            Tk::RPAREN(_, _) => Precedence::DEFAULT,
+            Tk::COMMA(_, _) => Precedence::DEFAULT,
+            Tk::ASSIGN(_, _) => Precedence::DEFAULT,
+            Tk::CARET(_, _) => Precedence::DEFAULT,
+            Tk::TILDE(_, _) => Precedence::DEFAULT,
+            Tk::COLON(_, _) => Precedence::DEFAULT,
+            Tk::NAME(_, _) => Precedence::DEFAULT,
+            Tk::ILEGAL => Precedence::DEFAULT,
         }
     }
 }
@@ -330,6 +361,7 @@ impl Pratt for Parser {
                 Tk::SLASH(_, _) => true,
                 Tk::BANG(_, _) => true,
                 Tk::QUESTION(_, _) => true,
+                Tk::LTHAN(_, _) => true,
                 _ => return left_expr,
             };
 
@@ -414,6 +446,26 @@ impl Pratt for Parser {
                         otherwise: Box::new(otherwise_branch),
                     }
                 }
+                //? comparison
+                Tk::LTHAN(_, _) => {
+                    let mut operands = vec![];
+                    operands.push(Box::new(left_expr));
+                    self.consume_token();
+                    operands.push(Box::new(self.parse_next_expression(Precedence::DEFAULT)));
+                    // todo: improve this while 💩❗
+                    while let Some(_value) = match self.next_token {
+                        Tk::LTHAN(_, _) => Some(()),
+                        _ => None,
+                    } {
+                        self.consume_token();
+                        operands.push(Box::new(self.parse_next_expression(Precedence::DEFAULT)));
+                    }
+
+                    Expression::COMPARISON {
+                        kind: Parselet::BRANCH,
+                        operands,
+                    }
+                }
                 _ => panic!("no debe llegar aquí!❌"),
             }
         }
@@ -429,7 +481,7 @@ impl Pratt for Parser {
     fn consume_token(&mut self) {
         self.current_token = self.next_token.clone();
         self.next_token = self.tokens.next().unwrap_or(Tk::ILEGAL);
-        // println!("consumed {:?}", self.current_token);
+        println!("consumed {:?}", self.current_token);
     }
 
     fn lookahead_by(&self, _distance: usize) {
@@ -550,6 +602,9 @@ mod tests {
             ("a ? b : c", "(a ? b : c)"),
             ("a ? b! : -c", "(a ? (b!) : (-c))"),
             ("a + b ? c! : -d", "((a + b) ? (c!) : (-d))"),
+            ("a < b", "(a < b)"),
+            ("a + b < c + d", "((a + b) < (c + d))"),
+            ("a < b < c", "(a < (b < c))"),
         ];
 
         for (input, expected) in tests {

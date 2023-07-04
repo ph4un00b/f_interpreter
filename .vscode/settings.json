@@ -8,6 +8,7 @@
     "lemigod",
     "LESSGREATER",
     "LPAREN",
+    "LTHAN",
     "mixfix",
     "NOTEQ",
     "nuds",

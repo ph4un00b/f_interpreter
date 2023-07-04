@@ -17,6 +17,7 @@ impl From<Tk> for String {
             Tk::COLON(_, _) => ":".to_string(),
             Tk::NAME(name, _) => name,
             Tk::ILEGAL => "_".to_string(),
+            Tk::LTHAN(_, _) => "<".to_string(),
         }
     }
 }
@@ -50,6 +51,7 @@ pub enum Tk {
     TILDE(String, i32),
     BANG(String, i32),
     QUESTION(String, i32),
+    LTHAN(String, i32),
     COLON(String, i32),
     NAME(String, i32),
     EOF(String, i32),
@@ -154,6 +156,7 @@ impl Scanner {
 
         let tok = match self.current_byte {
             //? operators
+            b'<' => Tk::LTHAN("<".to_string(), self.current_line),
             b'?' => Tk::QUESTION("?".to_string(), self.current_line),
             b':' => Tk::COLON(":".to_string(), self.current_line),
             b'=' => Tk::ASSIGN("=".to_string(), self.current_line),
@@ -280,6 +283,27 @@ mod tests {
             Tk::COLON(":".to_string(), 1),
             Tk::MINUS("-".to_string(), 1),
             Tk::NAME("d".to_string(), 1),
+            Tk::EOF("0".to_string(), 1),
+        ];
+
+        let mut lex = Lexer::new(input.into());
+
+        for expected_token in tests.iter() {
+            // todo: #clone necesario❓
+            assert_eq!(lex.next(), Some(expected_token.clone()));
+        }
+    }
+
+    #[test]
+    fn it_works_5() {
+        let input = "a < b < c";
+
+        let tests = [
+            Tk::NAME("a".to_string(), 1),
+            Tk::LTHAN("<".to_string(), 1),
+            Tk::NAME("b".to_string(), 1),
+            Tk::LTHAN("<".to_string(), 1),
+            Tk::NAME("c".to_string(), 1),
             Tk::EOF("0".to_string(), 1),
         ];
 
