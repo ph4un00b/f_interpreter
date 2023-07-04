@@ -1,14 +1,14 @@
-use std::{collections::HashMap, usize};
+use std::fmt;
 
 use crate::pratt_lexer_01::{Lexer, Tk};
 
 #[derive(PartialEq, Debug, Clone)]
 enum Parselet {
-    NAME,
-    PREFIX,
-    POSTFIX,
+    ID,
+    UNARY,
+    // POSTFIX,
     BINARY,
-    COND,
+    // BRANCH,
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -19,165 +19,212 @@ enum Expression {
     },
     PREOP {
         kind: Parselet,
-        token: Tk,
+        operator: Tk,
         operand: Box<Expression>,
     },
     OPERATOR {
         kind: Parselet,
         left: Box<Expression>,
-        token: Tk,
+        operator: Tk,
         right: Box<Expression>,
     },
-    POSTOP {
-        kind: Parselet,
-        left: Box<Expression>,
-        token: Tk,
-    },
-    BRANCH {
-        kind: Parselet,
-        left: Box<Expression>,
-        then: Box<Expression>,
-        otherwise: Box<Expression>,
-    },
-    // * for testing
-    NONE,
+    // POSTOP {
+    //     kind: Parselet,
+    //     left: Box<Expression>,
+    //     token: Tk,
+    // },
+    // BRANCH {
+    //     kind: Parselet,
+    //     left: Box<Expression>,
+    //     then: Box<Expression>,
+    //     otherwise: Box<Expression>,
+    // },
+    // // * for testing
+    // NONE,
+}
+
+impl fmt::Display for Expression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expression::NAME { kind, token } => {
+                write!(f, "{}", String::from(token.clone()))?;
+            }
+            Expression::PREOP {
+                kind,
+                operator,
+                operand,
+            } => {
+                write!(
+                    f,
+                    "({}{})",
+                    String::from(operator.clone()),
+                    operand.to_string()
+                )?;
+            }
+            Expression::OPERATOR {
+                kind,
+                left,
+                operator,
+                right,
+            } => {
+                write!(
+                    f,
+                    "({} {} {})",
+                    left.to_string(),
+                    String::from(operator.clone()),
+                    right.to_string()
+                )?;
+            }
+        };
+
+        Ok(())
+    }
+}
+
+#[derive(PartialEq, PartialOrd, Debug, Clone)]
+enum Precedence {
+    //? _ int = iota
+    //? LOWEST
+    //? EQUALS // ==
+    //? LESSGREATER // > or <
+    //? SUM // +
+    //? PRODUCT // *
+    //? PREFIX // -X or !X
+    //? CALL // myFunction(X)
+    DEFAULT,
+    SUM,
+    PRODUCT,
+    PREFIX,
+}
+
+impl From<Tk> for Precedence {
+    fn from(value: Tk) -> Precedence {
+        match value {
+            Tk::PLUS(_, _) => Precedence::SUM,
+            Tk::MINUS(_, _) => Precedence::SUM,
+            Tk::ASTERISK(_, _) => Precedence::PRODUCT,
+            _ => Precedence::DEFAULT,
+        }
+    }
 }
 
 trait Pratt {
-    fn parse_next_expression(&mut self) -> Expression;
+    fn parse_next_expression(&mut self, precedence: Precedence) -> Expression;
     fn consume_token(&mut self);
     fn lookahead_by(&self, distance: usize);
-    fn parse_prefix(&self);
-    fn parse_infix(&self);
 }
 
 #[derive(Clone)]
 struct Parser {
     tokens: Lexer,
-    errors: Vec<String>,
-    consumed: Vec<Tk>,
+    _errors: Vec<String>,
+    _consumed: Vec<Tk>,
     current_token: Tk,
     next_token: Tk,
-    prefixes: HashMap<Tk, Parselet>,
-    infixes: HashMap<Tk, Parselet>,
 }
 
 impl Parser {
     fn new(lexer: Lexer) -> Self {
         let mut p = Parser {
             tokens: lexer,
-            errors: vec![],
-            consumed: vec![],
+            _errors: vec![],
+            _consumed: vec![],
             current_token: Tk::ILEGAL,
             next_token: Tk::ILEGAL,
-            prefixes: HashMap::new(),
-            infixes: HashMap::new(),
         };
 
         p.consume_token();
         p.consume_token();
-        //* GRAMMAR
-        //? p.prefixes
-        //?     .insert(Tk::NAME("".to_string(), 0), Parselet::NAME);
-        //? p.prefixes
-        //?     .insert(Tk::PLUS("".to_string(), 0), Parselet::PREFIX);
-        //? p.prefixes
-        //?     .insert(Tk::MINUS("".to_string(), 0), Parselet::PREFIX);
-        //? p.prefixes
-        //?     .insert(Tk::TILDE("".to_string(), 0), Parselet::PREFIX);
-        //? p.prefixes
-        //?     .insert(Tk::BANG("".to_string(), 0), Parselet::PREFIX);
 
         p
+    }
+
+    fn parse_prefix_exp(&mut self) -> Expression {
+        let name_token = self.current_token.clone();
+        self.consume_token();
+
+        // * unary expression at least have one operand
+        Expression::PREOP {
+            kind: Parselet::UNARY,
+            operator: name_token,
+            operand: Box::new(self.parse_next_expression(Precedence::PREFIX)),
+        }
+    }
+
+    fn parse_id_exp(&mut self) -> Expression {
+        //? id parselet should be considered unary❓
+        Expression::NAME {
+            kind: Parselet::ID,
+            token: self.current_token.clone(),
+        }
+    }
+
+    fn parse_infix_exp(&mut self, left: &Expression) -> Expression {
+        // * It’s important to note that left is our already parsed expression
+        // * saves the precedence, advances the
+        // * tokens and calls #parse_next_expression
+        // * - passing in the just saved precedence.
+        let name_token = self.current_token.clone();
+
+        let current_precedence = Precedence::from(self.current_token.clone());
+        self.consume_token();
+
+        Expression::OPERATOR {
+            kind: Parselet::BINARY,
+            left: Box::new(left.clone()),
+            operator: name_token,
+            right: Box::new(self.parse_next_expression(current_precedence)),
+        }
     }
 }
 
 impl Pratt for Parser {
-    fn parse_next_expression(&mut self) -> Expression {
-        println!("tok - {:?}", self.current_token);
+    fn parse_next_expression(&mut self, precedence: Precedence) -> Expression {
+        println!("parsing - {:?} - pre {:?}", self.current_token, precedence);
 
-        let left = match self.current_token {
-            Tk::NAME(_, _) => Expression::NAME {
-                token: self.current_token.clone(),
-                kind: Parselet::PREFIX,
-            },
-            Tk::PLUS(_, _) | Tk::MINUS(_, _) | Tk::TILDE(_, _) | Tk::BANG(_, _) => {
-                let name_token = self.current_token.clone();
-                self.consume_token();
-
-                Expression::PREOP {
-                    kind: Parselet::PREFIX,
-                    token: name_token,
-                    operand: Box::new(self.parse_next_expression()),
-                }
-            }
-            _ => panic!("illegal prefix expression"),
+        // * null denotations aka nuds😏
+        let mut left_expr = match self.current_token {
+            Tk::NAME(_, _) => self.parse_id_exp(),
+            Tk::MINUS(_, _) => self.parse_prefix_exp(),
+            Tk::BANG(_, _) => self.parse_prefix_exp(),
+            _ => panic!("❌illegal prefix expression {:?}", self.current_token),
         };
 
-        let infix = match self.next_token {
-            // * INFIX
-            Tk::PLUS(_, _) | Tk::MINUS(_, _) => {
-                let name_token = self.current_token.clone();
-                self.consume_token();
+        while precedence < Precedence::from(self.next_token.clone()) {
+            // * left denotations aka leds
+            match self.next_token {
+                Tk::PLUS(_, _) => true,
+                Tk::MINUS(_, _) => true,
+                Tk::ASTERISK(_, _) => true,
+                _ => return left_expr,
+            };
 
-                Expression::OPERATOR {
-                    kind: Parselet::BINARY,
-                    left: Box::new(left),
-                    token: name_token,
-                    right: Box::new(self.parse_next_expression()),
-                }
+            self.consume_token();
+
+            left_expr = match self.current_token {
+                // * infixes
+                Tk::PLUS(_, _) => self.parse_infix_exp(&left_expr),
+                Tk::MINUS(_, _) => self.parse_infix_exp(&left_expr),
+                Tk::ASTERISK(_, _) => self.parse_infix_exp(&left_expr),
+                _ => panic!("no debe llegar aquí!❌"),
             }
-            // * POSTFIX
-            Tk::BANG(_, _) => Expression::POSTOP {
-                kind: Parselet::POSTFIX,
-                left: Box::new(left),
-                token: self.next_token.clone(),
-            },
-            // * MIXFIX
-            Tk::QUESTION(_, _) => {
-                self.consume_token();
-                self.consume_token();
-                let then_branch = self.parse_next_expression();
-                self.consume_token();
-                self.consume_token();
-                let otherwise_branch = self.parse_next_expression();
+        }
 
-                Expression::BRANCH {
-                    kind: Parselet::COND,
-                    left: Box::new(left),
-                    then: Box::new(then_branch),
-                    otherwise: Box::new(otherwise_branch),
-                }
-            }
-            // * PREFIX
-            _ => return left,
-        };
-
-        self.consume_token();
-
-        infix
+        left_expr
     }
 
     fn consume_token(&mut self) {
         self.current_token = self.next_token.clone();
         self.next_token = self.tokens.next().unwrap_or(Tk::ILEGAL);
+        // println!("consumed {:?}", self.current_token);
     }
 
-    fn lookahead_by(&self, distance: usize) {
+    fn lookahead_by(&self, _distance: usize) {
         // * quizá esta funcionalidad será remplazada por
         // * self#next_token, self#current_token, self#next_token
         // * si obtenemos el tamaño del iterador, se va consumir potencialmente e innecesariamente ❗❓
         // * en otras implementaciones se asume que ya están en memoria los tokens
         // * @see https://github.com/Mountagha/bantam/blob/main/parser.py
-        todo!()
-    }
-
-    fn parse_prefix(&self) {
-        todo!()
-    }
-
-    fn parse_infix(&self) {
-        todo!()
     }
 }
 
@@ -192,142 +239,97 @@ mod tests {
         let lexer = Lexer::new(input.into());
         let mut parser = Parser::new(lexer);
 
-        let parsed = parser.parse_next_expression();
+        let parsed = parser.parse_next_expression(Precedence::DEFAULT);
         assert_eq!(
             parsed,
             Expression::PREOP {
-                kind: Parselet::PREFIX,
-                token: Tk::MINUS("-".to_string(), 1),
+                kind: Parselet::UNARY,
+                operator: Tk::MINUS("-".to_string(), 1),
                 operand: Box::new(Expression::NAME {
-                    kind: Parselet::PREFIX,
+                    kind: Parselet::ID,
                     token: Tk::NAME("a".to_string(), 1)
                 })
             }
         );
+        assert_eq!(parsed.to_string(), "(-a)".to_string());
     }
 
     #[test]
     fn it_works_with_infixes() {
-        let unary_ops = [
-            ("-a + b", Tk::PLUS("+".to_string(), 1)),
-            ("-a - b", Tk::MINUS("-".to_string(), 1)),
-        ];
+        let unary_ops = [("a + b", Tk::ILEGAL)];
 
-        for (input, expected_token) in unary_ops {
+        for (input, _expected_token) in unary_ops {
             let lexer = Lexer::new(input.into());
             let mut parser = Parser::new(lexer);
-            let parsed = parser.parse_next_expression();
+            let parsed = parser.parse_next_expression(Precedence::DEFAULT);
             assert_eq!(
                 parsed,
-                Expression::PREOP {
-                    kind: Parselet::PREFIX,
-                    token: Tk::MINUS("-".to_string(), 1),
-                    operand: Box::new(Expression::OPERATOR {
+                Expression::OPERATOR {
+                    kind: Parselet::BINARY,
+                    left: Box::new(Expression::NAME {
+                        kind: Parselet::ID,
+                        token: Tk::NAME("a".to_string(), 1)
+                    }),
+                    operator: Tk::PLUS("+".to_string(), 1),
+                    right: Box::new(Expression::NAME {
+                        kind: Parselet::ID,
+                        token: Tk::NAME("b".to_string(), 1)
+                    })
+                },
+            );
+            assert_eq!(parsed.to_string(), "(a + b)".to_string());
+        }
+    }
+
+    #[test]
+    fn it_works_with_associative_left() {
+        let unary_ops = [("a + b + c", Tk::ILEGAL)];
+
+        for (input, _expected_token) in unary_ops {
+            let lexer = Lexer::new(input.into());
+            let mut parser = Parser::new(lexer);
+            let parsed = parser.parse_next_expression(Precedence::DEFAULT);
+            assert_eq!(
+                parsed,
+                // * without precedence
+                // * a - (b - c)
+                // * right associative by default
+                // * expected -> (a - b) - c
+                Expression::OPERATOR {
+                    kind: Parselet::BINARY,
+                    left: Box::new(Expression::OPERATOR {
                         kind: Parselet::BINARY,
                         left: Box::new(Expression::NAME {
-                            kind: Parselet::PREFIX,
+                            kind: Parselet::ID,
                             token: Tk::NAME("a".to_string(), 1)
                         }),
-                        token: Tk::NAME("a".to_string(), 1),
-                        right: Box::new(Expression::PREOP {
-                            kind: Parselet::PREFIX,
-                            token: expected_token,
-                            operand: Box::new(Expression::NAME {
-                                kind: Parselet::PREFIX,
-                                token: Tk::NAME("b".to_string(), 1)
-                            })
+                        operator: Tk::PLUS("+".to_string(), 1),
+                        right: Box::new(Expression::NAME {
+                            kind: Parselet::ID,
+                            token: Tk::NAME("b".to_string(), 1)
                         })
-                    })
-                }
-            );
-        }
-    }
-
-    #[test]
-    fn it_works_with_postfixes() {
-        let unary_ops = [("a!", Tk::BANG("!".to_string(), 1))];
-
-        for (input, expected_token) in unary_ops {
-            let lexer = Lexer::new(input.into());
-            let mut parser = Parser::new(lexer);
-            let parsed = parser.parse_next_expression();
-            assert_eq!(
-                parsed,
-                Expression::POSTOP {
-                    kind: Parselet::POSTFIX,
-                    left: Box::new(Expression::NAME {
-                        kind: Parselet::PREFIX,
-                        token: Tk::NAME("a".to_string(), 1)
                     }),
-                    token: expected_token
-                }
-            );
-        }
-    }
-
-    #[test]
-    fn it_works_with_conditional() {
-        let unary_ops = [("a ? b : c", Tk::BANG("!".to_string(), 1))];
-
-        for (input, expected_token) in unary_ops {
-            let lexer = Lexer::new(input.into());
-            let mut parser = Parser::new(lexer);
-            let parsed = parser.parse_next_expression();
-            assert_eq!(
-                parsed,
-                Expression::BRANCH {
-                    kind: Parselet::COND,
-                    left: Box::new(Expression::NAME {
-                        kind: Parselet::PREFIX,
-                        token: Tk::NAME("a".to_string(), 1)
-                    }),
-                    then: Box::new(Expression::NAME {
-                        kind: Parselet::PREFIX,
-                        token: Tk::NAME("b".to_string(), 1)
-                    }),
-                    otherwise: Box::new(Expression::NAME {
-                        kind: Parselet::PREFIX,
+                    operator: Tk::PLUS("+".to_string(), 1),
+                    right: Box::new(Expression::NAME {
+                        kind: Parselet::ID,
                         token: Tk::NAME("c".to_string(), 1)
                     })
-                }
+                },
             );
+            assert_eq!(parsed.to_string(), "((a + b) + c)".to_string());
         }
     }
 
     #[test]
-    fn it_works_with_complex_conditional() {
-        let unary_ops = [("a ? b! : -c", Tk::BANG("!".to_string(), 1))];
+    fn it_works_with_debug_infixes() {
+        let tests = [("-a * b", "((-a) * b)")];
 
-        for (input, expected_token) in unary_ops {
+        for (input, expected) in tests {
             let lexer = Lexer::new(input.into());
             let mut parser = Parser::new(lexer);
-            let parsed = parser.parse_next_expression();
-            assert_eq!(
-                parsed,
-                Expression::BRANCH {
-                    kind: Parselet::COND,
-                    left: Box::new(Expression::NAME {
-                        kind: Parselet::PREFIX,
-                        token: Tk::NAME("a".to_string(), 1)
-                    }),
-                    then: Box::new(Expression::POSTOP {
-                        kind: Parselet::POSTFIX,
-                        left: Box::new(Expression::NAME {
-                            kind: Parselet::PREFIX,
-                            token: Tk::NAME("b".to_string(), 1)
-                        }),
-                        token: Tk::BANG("!".to_string(), 1)
-                    }),
-                    otherwise: Box::new(Expression::PREOP {
-                        kind: Parselet::PREFIX,
-                        token: Tk::MINUS("-".to_string(), 1),
-                        operand: Box::new(Expression::NAME {
-                            kind: Parselet::PREFIX,
-                            token: Tk::NAME("c".to_string(), 1)
-                        })
-                    })
-                }
-            );
+            let parsed = parser.parse_next_expression(Precedence::DEFAULT);
+
+            assert_eq!(parsed.to_string(), expected.to_string());
         }
     }
 }

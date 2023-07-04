@@ -1,3 +1,25 @@
+impl From<Tk> for String {
+    fn from(value: Tk) -> Self {
+        match value {
+            Tk::ASSIGN(_, _) => "=".to_string(),
+            Tk::LPAREN(_, _) => "(".to_string(),
+            Tk::RPAREN(_, _) => ")".to_string(),
+            Tk::COMMA(_, _) => ",".to_string(),
+            Tk::PLUS(_, _) => "+".to_string(),
+            Tk::EOF(_, _) => "\0".to_string(),
+            Tk::MINUS(_, _) => "-".to_string(),
+            Tk::BANG(_, _) => "!".to_string(),
+            Tk::ASTERISK(_, _) => "*".to_string(),
+            Tk::SLASH(_, _) => "/".to_string(),
+            Tk::CARET(_, _) => "^".to_string(),
+            Tk::TILDE(_, _) => "~".to_string(),
+            Tk::QUESTION(_, _) => "?".to_string(),
+            Tk::COLON(_, _) => ":".to_string(),
+            Tk::NAME(name, _) => name,
+            Tk::ILEGAL => "_".to_string(),
+        }
+    }
+}
 /*
  * This task has been variously called “scanning” and “lexing”
  * (short for “lexical analysis”) over the years.
