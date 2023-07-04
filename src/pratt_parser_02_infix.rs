@@ -8,7 +8,7 @@ enum Parselet {
     UNARY,
     // POSTFIX,
     BINARY,
-    // BRANCH,
+    BRANCH,
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -33,12 +33,12 @@ enum Expression {
         operand: Box<Expression>,
         operator: Tk,
     },
-    // BRANCH {
-    //     kind: Parselet,
-    //     left: Box<Expression>,
-    //     then: Box<Expression>,
-    //     otherwise: Box<Expression>,
-    // },
+    BRANCH {
+        kind: Parselet,
+        left: Box<Expression>,
+        then: Box<Expression>,
+        otherwise: Box<Expression>,
+    },
     // // * for testing
     // NONE,
 }
@@ -85,6 +85,18 @@ impl fmt::Display for Expression {
                 operand.to_string(),
                 String::from(operator.clone()),
             )?,
+            Expression::BRANCH {
+                kind,
+                left,
+                then,
+                otherwise,
+            } => write!(
+                f,
+                "({} ? {} : {})",
+                left.to_string(),
+                then.to_string(),
+                otherwise.to_string(),
+            )?,
         };
 
         Ok(())
@@ -102,6 +114,7 @@ enum Precedence {
     //? PREFIX // -X or !X
     //? CALL // myFunction(X)
     DEFAULT,
+    BRANCH,
     SUM,
     PRODUCT,
     PREFIX,
@@ -124,6 +137,7 @@ impl From<Tk> for Precedence {
             Tk::ASTERISK(_, _) => Precedence::PRODUCT,
             Tk::SLASH(_, _) => Precedence::PRODUCT,
             Tk::BANG(_, _) => Precedence::POSTFIX,
+            Tk::QUESTION(_, _) => Precedence::BRANCH,
             _ => Precedence::DEFAULT,
         }
     }
@@ -219,6 +233,7 @@ impl Pratt for Parser {
                 Tk::ASTERISK(_, _) => true,
                 Tk::SLASH(_, _) => true,
                 Tk::BANG(_, _) => true,
+                Tk::QUESTION(_, _) => true,
                 _ => return left_expr,
             };
 
@@ -236,6 +251,23 @@ impl Pratt for Parser {
                     operand: Box::new(left_expr),
                     operator: self.current_token.clone(),
                 },
+                // * branch
+                Tk::QUESTION(_, _) => {
+                    self.consume_token();
+                    let then_branch = self.parse_next_expression(Precedence::DEFAULT);
+
+                    self.consume_token();
+
+                    self.consume_token();
+                    let otherwise_branch = self.parse_next_expression(Precedence::DEFAULT);
+
+                    Expression::BRANCH {
+                        kind: Parselet::BRANCH,
+                        left: Box::new(left_expr),
+                        then: Box::new(then_branch),
+                        otherwise: Box::new(otherwise_branch),
+                    }
+                }
                 _ => panic!("no debe llegar aquí!❌"),
             }
         }
@@ -364,6 +396,9 @@ mod tests {
             ("a + b * c + d / e - f", "(((a + (b * c)) + (d / e)) - f)"),
             ("a!", "(a!)"),
             ("-a!", "(-(a!))"),
+            ("a ? b : c", "(a ? b : c)"),
+            ("a ? b! : -c", "(a ? (b!) : (-c))"),
+            ("a + b ? c! : -d", "((a + b) ? (c!) : (-d))"),
         ];
 
         for (input, expected) in tests {
