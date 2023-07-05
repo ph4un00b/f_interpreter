@@ -1,6 +1,5 @@
-use std::fmt;
-
 use crate::pratt_lexer_01::{Lexer, Tk};
+use std::fmt;
 
 #[derive(PartialEq, Debug, Clone)]
 enum Parselet {
@@ -42,6 +41,10 @@ enum Expression {
     COMPARISON {
         kind: Parselet,
         operands: Vec<Box<Expression>>,
+    },
+    BOOLEAN {
+        kind: Parselet,
+        value: Tk,
     },
 }
 
@@ -114,6 +117,11 @@ impl fmt::Display for Expression {
                 write!(f, ")")?;
             }
             Expression::NONE => write!(f, "__test__")?,
+            Expression::BOOLEAN { kind, value } => match value {
+                Tk::TRUE(_, _) => write!(f, "#t")?,
+                Tk::FALSE(_, _) => write!(f, "#f")?,
+                _ => panic!("❌ no deberia estar aquí"),
+            },
         };
 
         Ok(())
@@ -167,6 +175,8 @@ impl From<Tk> for Precedence {
             Tk::COLON(_, _) => Precedence::DEFAULT,
             Tk::NAME(_, _) => Precedence::DEFAULT,
             Tk::ILEGAL => Precedence::DEFAULT,
+            Tk::TRUE(_, _) => Precedence::DEFAULT,
+            Tk::FALSE(_, _) => Precedence::DEFAULT,
         }
     }
 }
@@ -269,7 +279,7 @@ impl Pratt for Parser {
          * #current_token   -> B
          * #next_token  	-> ➕
          */
-        // println!("parsing - {:?} - pre {:?}", self.current_token, precedence);
+        println!("parsing - {:?} - pre {:?}", self.current_token, precedence);
 
         /*
          * The first thing #parse_next_expression then does is to check whether
@@ -283,6 +293,14 @@ impl Pratt for Parser {
             Tk::NAME(_, _) => self.parse_identifier(),
             Tk::MINUS(_, _) => self.parse_prefix(),
             Tk::BANG(_, _) => self.parse_prefix(),
+            Tk::TRUE(_, _) => Expression::BOOLEAN {
+                kind: Parselet::UNARY,
+                value: self.current_token.clone(),
+            },
+            Tk::FALSE(_, _) => Expression::BOOLEAN {
+                kind: Parselet::UNARY,
+                value: self.current_token.clone(),
+            },
             _ => panic!("\n❌ illegal prefix expression {:?}", self.current_token),
         };
 
@@ -605,6 +623,11 @@ mod tests {
             ("a < b", "(a < b)"),
             ("a + b < c + d", "((a + b) < (c + d))"),
             ("a < b < c", "(a < (b < c))"),
+            ("true", "#t"),
+            ("false", "#f"),
+            ("a < b < false", "(a < (b < #f))"),
+            ("!true", "(!#t)"),
+            ("!false", "(!#f)"),
         ];
 
         for (input, expected) in tests {

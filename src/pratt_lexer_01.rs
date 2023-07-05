@@ -1,26 +1,3 @@
-impl From<Tk> for String {
-    fn from(value: Tk) -> Self {
-        match value {
-            Tk::ASSIGN(_, _) => "=".to_string(),
-            Tk::LPAREN(_, _) => "(".to_string(),
-            Tk::RPAREN(_, _) => ")".to_string(),
-            Tk::COMMA(_, _) => ",".to_string(),
-            Tk::PLUS(_, _) => "+".to_string(),
-            Tk::EOF(_, _) => "\0".to_string(),
-            Tk::MINUS(_, _) => "-".to_string(),
-            Tk::BANG(_, _) => "!".to_string(),
-            Tk::ASTERISK(_, _) => "*".to_string(),
-            Tk::SLASH(_, _) => "/".to_string(),
-            Tk::CARET(_, _) => "^".to_string(),
-            Tk::TILDE(_, _) => "~".to_string(),
-            Tk::QUESTION(_, _) => "?".to_string(),
-            Tk::COLON(_, _) => ":".to_string(),
-            Tk::NAME(name, _) => name,
-            Tk::ILEGAL => "_".to_string(),
-            Tk::LTHAN(_, _) => "<".to_string(),
-        }
-    }
-}
 /*
  * This task has been variously called “scanning” and “lexing”
  * (short for “lexical analysis”) over the years.
@@ -57,6 +34,34 @@ pub enum Tk {
     EOF(String, i32),
     // ILEGAL(String, i32),
     ILEGAL,
+    TRUE(String, i32),
+    FALSE(String, i32),
+}
+
+impl From<Tk> for String {
+    fn from(value: Tk) -> Self {
+        match value {
+            Tk::ASSIGN(_, _) => "=".to_string(),
+            Tk::LPAREN(_, _) => "(".to_string(),
+            Tk::RPAREN(_, _) => ")".to_string(),
+            Tk::COMMA(_, _) => ",".to_string(),
+            Tk::PLUS(_, _) => "+".to_string(),
+            Tk::EOF(_, _) => "\0".to_string(),
+            Tk::MINUS(_, _) => "-".to_string(),
+            Tk::BANG(_, _) => "!".to_string(),
+            Tk::ASTERISK(_, _) => "*".to_string(),
+            Tk::SLASH(_, _) => "/".to_string(),
+            Tk::CARET(_, _) => "^".to_string(),
+            Tk::TILDE(_, _) => "~".to_string(),
+            Tk::QUESTION(_, _) => "?".to_string(),
+            Tk::COLON(_, _) => ":".to_string(),
+            Tk::NAME(name, _) => name,
+            Tk::ILEGAL => "_".to_string(),
+            Tk::LTHAN(_, _) => "<".to_string(),
+            Tk::TRUE(value, _) => value,
+            Tk::FALSE(value, _) => value,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -140,12 +145,6 @@ impl Scanner {
         self.next_position += 1;
     }
 
-    /*
-     * last 2 empties chars are TokenType.NAME & TokenType.EOF respectively
-     *
-     * string_values
-     * = ['(', ')', ',', '=', '+', '-', '*', '/', '^', '~', '!', '?', ':', '', '']
-     */
     fn next_tok(&mut self) -> Tk {
         while self.current_byte.is_ascii_whitespace() {
             if let b'\n' = self.current_byte {
@@ -153,6 +152,11 @@ impl Scanner {
             }
             self.consume_byte();
         }
+
+        let vec = [self.current_byte].to_vec();
+        // todo: mejorar esta vaina 👀
+        let name = String::from_utf8(vec).unwrap();
+        println!("current {:?}", name);
 
         let tok = match self.current_byte {
             //? operators
@@ -170,20 +174,24 @@ impl Scanner {
             b',' => Tk::COMMA(",".to_string(), self.current_line),
             b'A'..=b'Z' | b'a'..=b'z' | b'_' => {
                 let start = self.current_position;
-                while self.current_byte.is_ascii_alphabetic()
-                    && !self.next_byte().is_ascii_whitespace()
-                    && self.next_byte() != b'!'
-                    && self.next_byte() != b')'
-                    && self.next_byte() != b'('
-                    && self.next_byte() != b'\0'
-                {
+                /*
+                 * usage:
+                 * allow snake_case
+                 * allow ? for query methods f.i.: jamon?
+                 * allow ! for throwing methods f.i.: jamon!
+                 */
+                while self.current_byte.is_ascii_alphabetic() || self.current_byte == b'_' {
                     self.consume_byte();
                 }
-
-                let vec = self.source_code[start..self.current_position + 1].to_vec();
+                let vec = self.source_code[start..self.current_position].to_vec();
+                // todo: mejorar esta vaina 👀
                 let name = String::from_utf8(vec).unwrap();
 
-                Tk::NAME(name, self.current_line)
+                return match name.as_str() {
+                    "true" => Tk::TRUE(name, self.current_line),
+                    "false" => Tk::FALSE(name, self.current_line),
+                    _ => Tk::NAME(name, self.current_line),
+                };
             }
             0 => Tk::EOF("0".to_string(), self.current_line),
             // _ => Tk::ILEGAL("_".to_string(), self.current_line),
@@ -304,6 +312,46 @@ mod tests {
             Tk::NAME("b".to_string(), 1),
             Tk::LTHAN("<".to_string(), 1),
             Tk::NAME("c".to_string(), 1),
+            Tk::EOF("0".to_string(), 1),
+        ];
+
+        let mut lex = Lexer::new(input.into());
+
+        for expected_token in tests.iter() {
+            // todo: #clone necesario❓
+            assert_eq!(lex.next(), Some(expected_token.clone()));
+        }
+    }
+
+    #[test]
+    fn it_works_6() {
+        let input = "foobar = true";
+
+        let tests = [
+            Tk::NAME("foobar".to_string(), 1),
+            Tk::ASSIGN("=".to_string(), 1),
+            Tk::TRUE("true".to_string(), 1),
+            Tk::EOF("0".to_string(), 1),
+        ];
+
+        let mut lex = Lexer::new(input.into());
+
+        for expected_token in tests.iter() {
+            // todo: #clone necesario❓
+            assert_eq!(lex.next(), Some(expected_token.clone()));
+        }
+    }
+
+    #[test]
+    fn it_works_7() {
+        let input = "a < b + false";
+
+        let tests = [
+            Tk::NAME("a".to_string(), 1),
+            Tk::LTHAN("<".to_string(), 1),
+            Tk::NAME("b".to_string(), 1),
+            Tk::PLUS("+".to_string(), 1),
+            Tk::FALSE("false".to_string(), 1),
             Tk::EOF("0".to_string(), 1),
         ];
 
