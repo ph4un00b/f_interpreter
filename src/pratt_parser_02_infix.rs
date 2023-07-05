@@ -301,6 +301,20 @@ impl Pratt for Parser {
                 kind: Parselet::UNARY,
                 value: self.current_token.clone(),
             },
+            //? grouping
+            Tk::LPAREN(_, _) => {
+                self.consume_token();
+
+                let expr = self.parse_next_expression(Precedence::DEFAULT);
+
+                match self.next_token {
+                    Tk::RPAREN(_, _) => {
+                        self.consume_token();
+                        expr
+                    }
+                    _ => panic!("\n🎈wtf is this {:?} 💩!", self.next_token),
+                }
+            }
             _ => panic!("\n❌ illegal prefix expression {:?}", self.current_token),
         };
 
@@ -609,25 +623,38 @@ mod tests {
             ("-a + b", "((-a) + b)"),
             ("-a * b", "((-a) * b)"),
             ("!-a", "(!(-a))"),
+            //? precedence
             ("a + b + c", "((a + b) + c)"),
             ("a + b - c", "((a + b) - c)"),
             ("a * b * c", "((a * b) * c)"),
             ("a * b / c", "((a * b) / c)"),
             ("a + b / c", "(a + (b / c))"),
             ("a + b * c + d / e - f", "(((a + (b * c)) + (d / e)) - f)"),
+            //? postfix
             ("a!", "(a!)"),
             ("-a!", "(-(a!))"),
+            //? conditionals
             ("a ? b : c", "(a ? b : c)"),
             ("a ? b! : -c", "(a ? (b!) : (-c))"),
             ("a + b ? c! : -d", "((a + b) ? (c!) : (-d))"),
+            //? comparisons
             ("a < b", "(a < b)"),
             ("a + b < c + d", "((a + b) < (c + d))"),
             ("a < b < c", "(a < (b < c))"),
+            //? booleans
             ("true", "#t"),
             ("false", "#f"),
             ("a < b < false", "(a < (b < #f))"),
             ("!true", "(!#t)"),
             ("!false", "(!#f)"),
+            //? grouping 😃
+            ("a + (b + c) + d", "((a + (b + c)) + d)"),
+            ("(a + a) * b", "((a + a) * b)"),
+            ("a / (b + b)", "(a / (b + b))"),
+            ("-(a + b)", "(-(a + b))"),
+            //* aun no tenemos assignments como expresión
+            // ("!(a = a)", "(!(a = a))"),
+            ("!(a + a)", "(!(a + a))"),
         ];
 
         for (input, expected) in tests {

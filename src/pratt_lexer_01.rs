@@ -362,4 +362,51 @@ mod tests {
             assert_eq!(lex.next(), Some(expected_token.clone()));
         }
     }
+
+    #[test]
+    fn it_works_8() {
+        let input = "a + (b + c) + d";
+
+        let tests = [
+            Tk::NAME("a".to_string(), 1),
+            Tk::PLUS("+".to_string(), 1),
+            Tk::LPAREN("(".to_string(), 1),
+            Tk::NAME("b".to_string(), 1),
+            Tk::PLUS("+".to_string(), 1),
+            Tk::NAME("c".to_string(), 1),
+            Tk::RPAREN(")".to_string(), 1),
+            Tk::PLUS("+".to_string(), 1),
+            Tk::NAME("d".to_string(), 1),
+            Tk::EOF("0".to_string(), 1),
+        ];
+
+        let mut lex = Lexer::new(input.into());
+
+        for expected_token in tests.iter() {
+            // todo: #clone necesario❓
+            assert_eq!(lex.next(), Some(expected_token.clone()));
+        }
+    }
+
+    #[test]
+    fn it_works_9() {
+        let input = "!(a = a)";
+
+        let tests = [
+            Tk::BANG("!".to_string(), 1),
+            Tk::LPAREN("(".to_string(), 1),
+            Tk::NAME("a".to_string(), 1),
+            Tk::ASSIGN("=".to_string(), 1),
+            Tk::NAME("a".to_string(), 1),
+            Tk::RPAREN(")".to_string(), 1),
+            Tk::EOF("0".to_string(), 1),
+        ];
+
+        let mut lex = Lexer::new(input.into());
+
+        for expected_token in tests.iter() {
+            // todo: #clone necesario❓
+            assert_eq!(lex.next(), Some(expected_token.clone()));
+        }
+    }
 }
