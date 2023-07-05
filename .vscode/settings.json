@@ -14,6 +14,7 @@
     "nuds",
     "parselet",
     "Parselet",
+    "poc's",
     "postamble",
     "POSTOP",
     "pratt",
@@ -30,6 +31,12 @@
     "cli",
     "scanner",
     "parser",
-    "🧪"
+    "🧪",
+    "grammar"
+  ],
+  "rust-analyzer.linkedProjects": [
+    ".\\grammars\\Cargo.toml",
+    ".\\Cargo.toml",
+    ".\\Cargo.toml"
   ]
 }
