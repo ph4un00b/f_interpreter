@@ -1,3 +1,25 @@
+/*
+ * There is a whole pack of parsing techniques whose
+ * names are mostly combinations of “L” and “R”
+ * —LL(k), @see https://en.wikipedia.org/wiki/LL_parser
+ * LR aka bottom-up, @see https://en.wikipedia.org/wiki/LR_parser
+ * LALR @see https://en.wikipedia.org/wiki/LALR_parser
+ * along with more exotic beasts like
+ * parser combinators, @see https://en.wikipedia.org/wiki/Parser_combinator
+ * Earley parsers, @see https://en.wikipedia.org/wiki/Earley_parser
+ * the shunting yard algorithm, @see https://en.wikipedia.org/wiki/Shunting-yard_algorithm
+ * and packrat parsing.@see https://en.wikipedia.org/wiki/Parsing_expression_grammar
+ * For our first interpreter, one technique is more than
+ * sufficient: recursive descent.
+ */
+
+//?  Grammar notation	Code representation
+//?  Terminal	        Code to match and consume a token
+//?  Non-terminal	    Call to that rule’s function
+//?  |	                if or switch statement
+//?  * or +	            while or for loop
+//?  ?	                if statement
+
 use crate::pratt_lexer_01::{Lexer, Tk};
 use std::fmt;
 
@@ -16,6 +38,8 @@ enum Expression {
         kind: Parselet,
         token: Tk,
     },
+    // todo: revisar capitulo sobre BOX
+    //* @see https://doc.rust-lang.org/book/ch15-01-box.html#enabling-recursive-types-with-boxes
     PREOP {
         kind: Parselet,
         operator: Tk,
@@ -128,6 +152,12 @@ impl fmt::Display for Expression {
     }
 }
 
+/*
+ * In a top-down parser,
+ * you reach the lowest-precedence expressions first
+ * because they may in turn contain sub-expressions
+ * of higher precedence.
+ */
 #[derive(PartialEq, PartialOrd, Debug, Clone)]
 enum Precedence {
     //? _ int = iota
@@ -138,10 +168,14 @@ enum Precedence {
     //? PRODUCT // *
     //? PREFIX // -X or !X
     //? CALL // myFunction(X)
+    // * aplicar el “Please Excuse My Dear Aunt Sally” ❓
+    // * @see https://en.wikipedia.org/wiki/Order_of_operations#Mnemonics
     DEFAULT,
     BRANCH,
     COMPARE,
     SUM,
+    // * for product stuff
+    // * @see https://docs.oracle.com/cd/E19957-01/806-3568/ncg_goldberg.html
     PRODUCT,
     PREFIX,
     POSTFIX,
@@ -196,6 +230,32 @@ struct Parser {
     next_token: Tk,
 }
 
+/*
+ * Rules are called productions because they
+ * produce strings in the grammar.
+ *
+ * Each production in a context-free grammar
+ * has a head—its name—and a body, which describes
+ * what it generates. In its pure form,
+ *
+ * the body
+ * is simply a list of symbols.
+ *
+ * Symbols come
+ * in two delectable flavors:
+ *
+ * A terminal
+ * is a letter from the grammar’s alphabet.
+ * the terminals are individual lexemes—tokens
+ * coming from the scanner like if or 1234.
+ * These are called “terminals”, in the sense of an “end point”
+ * You simply produce that one symbol.
+ *
+ * A non-terminal
+ * is a named reference to another rule in the grammar.
+ * It means “play that rule and insert whatever it produces here”.
+ * In this way, the grammar composes.
+ */
 impl Parser {
     fn new(lexer: Lexer) -> Self {
         let mut p = Parser {
@@ -212,6 +272,7 @@ impl Parser {
         p
     }
 
+    //? Each grammar rule becomes a method inside this object❗
     fn parse_prefix(&mut self) -> Expression {
         let name_token = self.current_token.clone();
         self.consume_token();
@@ -618,7 +679,7 @@ mod tests {
     }
 
     #[test]
-    fn it_works_with_debug_strings() {
+    fn it_works_with_a_pretty_printer_debug() {
         let tests = [
             ("-a + b", "((-a) + b)"),
             ("-a * b", "((-a) * b)"),
