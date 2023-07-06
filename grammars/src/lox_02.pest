@@ -1,0 +1,82 @@
+//? Associativity
+//? determines which operator is evaluated first
+//? in a series of the same operator.
+//? When an operator is left-associative
+//? (think “left-to-right”), operators on the
+//? left evaluate before those on the right.
+//? Since - is left-associative, this expression:
+//* 5 - 3 - 1
+//* is (5 - 3) - 1
+//? Assignment, on the other hand, is right-associative. This:
+//* a = b = c
+//* a = (b = c)
+//?  We’ll fix that in Lox by applying the
+//? same precedence rules as C,
+//? going from lowest to highest.
+//* Name	Operators	Associates
+//* Equality	== !=		Left
+//* Comparison	> >= < <=	Left
+//* Term	- +		Left
+//* Factor	/ *		Left
+//* Unary	! -		Right
+//? read up bottom-up -wise 👀
+string     = @{ "'" ~ ("''" | (!"'" ~ ANY))* ~ "'" }
+integer    = @{ ASCII_DIGIT+ }
+WHITESPACE = _{ " " }
+//? This grammar is more complex than the one
+//? we had before, but in return we have
+//? eliminated the previous one’s ambiguity.
+//? It’s just what we need to make a parser.
+exp        =  { eq }
+eq         = _{ comparison ~ (("!=" | "==") ~ comparison)* }
+comparison = _{ term ~ ((">" | ">=" | "<" | "<=") ~ term)* }
+term       = _{ factor ~ ((sub | add) ~ factor)* }
+//? (3)
+//? We’ll start with the rule for multiplication and division.
+//? Here’s a first try:
+//* factor     = _{ factor ~ (div | mul) ~ unary | unary }
+//? All of this is correct, but the fact that the first symbol
+//? in the body of the rule is the same as the head of the
+//? rule means this production is
+// * left-recursive.
+//? Some parsing techniques, including the one we’re
+//? going to use, have trouble with left recursion.
+//* (Recursion elsewhere, like we have in unary and
+//* the indirect recursion for grouping in primary are not a problem.)
+//? This rule is correct, but not optimal for how we
+//? intend to parse it. Instead of a left recursive rule,
+//? we’ll use a different one.
+//* factor     = _{ unary ~ ((div | mul) ~ unary)* }
+//? We define a factor expression as a flat sequence
+//? of multiplications and divisions.
+//? This matches the same syntax as the
+//? previous rule, but better mirrors the code
+//? we’ll write to parse Lox. We use the same
+//? structure for all of the other binary operator precedence levels
+factor     = _{ unary ~ ((div | mul) ~ unary)* }
+//* @see https://craftinginterpreters.com/parsing-expressions.html#ambiguity-and-the-parsing-game*/
+//? (2)
+//? A unary expression starts with a unary operator
+//? followed by the operand.
+//? Since unary operators can nest—!!true is a valid
+//? if weird expression—the operand can itself
+//? be a unary operator.
+//? A recursive rule handles that nicely.
+//* unary      = _{ (bang | neg) ~ unary }
+//? But this rule has a problem. It never terminates!.
+//? Remember, each rule needs to match expressions
+//? at that precedence level or higher,
+//? so we also need to let this match a primary expression.
+unary      = _{ (bang | neg) ~ unary | primary }
+//? (1)
+//? Over at the other end of the precedence table,
+//? a primary expression contains all the
+//? literals and grouping expressions.
+primary    = _{ integer | string | "true" | "false" | "nil" | "(" ~ exp ~ ")" }
+bang       =  { "!" }
+neg        =  { "-" }
+add        =  { "+" }
+sub        =  { "-" }
+mul        =  { "*" }
+div        =  { "/" }
+mod        =  { "%" }

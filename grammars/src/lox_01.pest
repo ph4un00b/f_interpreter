@@ -1,0 +1,22 @@
+//? @see https://craftinginterpreters.com/representing-code.html#a-grammar-for-lox-expressions
+
+// expression     → literal
+//                | unary
+//                | binary
+//                | grouping ;
+
+// literal        → NUMBER | STRING | "true" | "false" | "nil" ;
+// grouping       → "(" expression ")" ;
+// unary          → ( "-" | "!" ) expression ;
+// binary         → expression operator expression ;
+// operator       → "==" | "!=" | "<" | "<=" | ">" | ">="
+//                | "+"  | "-"  | "*" | "/" ;
+
+//* minimal grammar for sample
+//* sample 🐋 1 - (2 * 3) < 4 == false
+WHITESPACE = _{ " " } //? https://pest.rs/book/examples/ini.html#whitespace
+literal = { ASCII_DIGIT | "false" }
+operator = { "-" | "*" | "<" | "==" }
+grouping = { "(" ~ expr ~ ")" }
+//bin = { expr ~ operator ~ expr }
+expr = { (literal | operator | grouping)+ }
