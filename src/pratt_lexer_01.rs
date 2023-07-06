@@ -11,9 +11,17 @@
  * These days, reading a source file into memory is trivial,
  * so it’s rarely a distinct phase in the compiler.
  * Because of that, the two terms are basically interchangeable.
- * @see https://craftinginterpreters.com/scanning.html
  */
+//? @see https://craftinginterpreters.com/scanning.html
 
+//*  The “alphabet” is . .   🐋 CharactersTokens
+//*  A “string” is . . .	 🐋 Lexeme or token	Expression
+//*  It’s implemented by the 🐋 Scanner	Parser
+//? @see https://craftinginterpreters.com/representing-code.html#context-free-grammars */
+// * Tokens aren’t entirely homogeneous either.
+// *Tokens for literals store the value,
+// *but other kinds of lexemes don’t need that state
+// todo: quitar estado innecesario, usar el lemmy helper String::from(TK)❗
 #[derive(PartialEq, Debug, Clone, Hash, Eq)]
 pub enum Tk {
     LPAREN(String, i32),
