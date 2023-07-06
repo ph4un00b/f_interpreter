@@ -37,11 +37,15 @@
     "scanner",
     "parser",
     "🧪",
-    "grammar"
+    "grammar",
+    "lox"
   ],
   "rust-analyzer.linkedProjects": [
     ".\\grammars\\Cargo.toml",
     ".\\Cargo.toml",
-    ".\\Cargo.toml"
-  ]
+    ".\\lox_parser\\Cargo.toml"
+  ],
+  //? https://rust-analyzer.github.io/manual.html#clippy
+  // "rust-analyzer.check.command": "clippy --all -W clippy::all -W clippy::pedantic -W clippy::restriction -W clippy::nursery -D warnings"
+  "rust-analyzer.check.command": "clippy"
 }
