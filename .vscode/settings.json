@@ -27,8 +27,10 @@
     "PREOPERATOR",
     "Putback",
     "RPAREN",
+    "thiserror",
     "typechecker",
     "whitespaces",
+    "yeet",
     "YYLMAX"
   ],
   "conventionalCommits.scopes": [
