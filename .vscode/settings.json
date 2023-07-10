@@ -25,6 +25,7 @@
     "pratt",
     "PREOP",
     "PREOPERATOR",
+    "println",
     "Putback",
     "RPAREN",
     "thiserror",
