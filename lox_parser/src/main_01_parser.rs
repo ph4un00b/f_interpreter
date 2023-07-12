@@ -263,19 +263,6 @@ impl Parser {
 
     fn primary(&mut self) -> Expr {
         match self.current_token {
-            Tk::False => {
-                self.consume_token();
-                Expr::literal("false")
-            }
-            Tk::Num(val) => {
-                self.consume_token();
-                Expr::literal(val)
-            }
-            Tk::Float(val) => {
-                self.consume_token();
-                Expr::literal(val)
-            }
-
             Tk::Lpar => {
                 self.consume_token();
                 let expr = self.expression();
