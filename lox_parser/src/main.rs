@@ -1,5 +1,53 @@
 use std::fmt::{self, Display};
 
+#[allow(unused)]
+fn string_err(expected_token: Tk, token: Tk, context_message: &str) -> String {
+    if token == Tk::End {
+        format!(
+            "❌ expected next token to be {:?} at end, {}, got {:?} instead",
+            expected_token, context_message, token
+        )
+    } else if expected_token == Tk::Default {
+        format!("❌ {}, got {:?} instead", context_message, token)
+    } else {
+        format!(
+            "❌ expected next token to be {:?}, {}, got {:?} instead",
+            expected_token, context_message, token
+        )
+    }
+}
+
+fn report_err(expected_token: Tk, token: Tk, context_message: &str) {
+    /*
+     * Another way to handle common syntax errors is with error productions.
+     * You augment the grammar with a rule that
+     * successfully matches the erroneous syntax. The parser
+     * safely parses it but then reports it as an error instead
+     * of producing a syntax tree.
+     *
+     * unary → ( "!" | "-" | -> "+" <- ) unary | primary ;
+     *
+     * This lets the parser consume + without going into
+     * panic mode or leaving the parser in a weird state
+     *
+     * This lets the parser consume + without going into panic
+     * mode or leaving the parser in a weird state
+     */
+
+    //? Mature parsers tend to accumulate error productions
+    //? like barnacles since they help users fix common mistakes.
+    if token == Tk::End {
+        eprintln!(
+            "❌ expected next token to be {:?} at end, {}, got {:?} instead",
+            expected_token, context_message, token
+        );
+    } else {
+        eprintln!(
+            "❌ expected next token to be {:?}, {}, got {:?} instead",
+            expected_token, context_message, token
+        );
+    }
+}
 /*
  * minimal parser and token for
  * 1 - (2 * 3) < 4 == false
@@ -16,6 +64,7 @@ enum Expr {
     },
     Literal(Value),
     Grouping(Box<Expr>),
+    None,
 }
 
 enum Value {
@@ -50,6 +99,15 @@ impl From<Tk> for String {
             Tk::Default => unreachable!(),
             Tk::End => unreachable!(),
             Tk::Bang => "!".to_string(),
+            Tk::Semi => ";".to_string(),
+            Tk::Class => "class".to_string(),
+            Tk::Fn => "fn".to_string(),
+            Tk::Var => "let".to_string(),
+            Tk::For => "for".to_string(),
+            Tk::If => "if".to_string(),
+            Tk::While => "while".to_string(),
+            Tk::Print => "put".to_string(),
+            Tk::Return => "ret".to_string(),
         }
     }
 }
@@ -70,6 +128,15 @@ enum Tk {
     False,
     Bang,
     End,
+    Semi,
+    Class,
+    Fn,
+    Var,
+    For,
+    If,
+    While,
+    Print,
+    Return,
 }
 
 trait ToLiteral<TValue>
@@ -140,6 +207,7 @@ impl fmt::Display for Expr {
             } => write!(f, "({} {} {})", String::from(operator.clone()), left, right)?,
             Expr::Literal(val) => write!(f, "{}", val)?,
             Expr::Grouping(expr) => write!(f, "(group {})", expr)?,
+            Expr::None => write!(f, "❌ algún error!")?,
         }
 
         Ok(())
@@ -151,9 +219,15 @@ struct Parser {
     tokens: Vec<Tk>,
     current_position: usize,
     current_token: Tk,
-    // next_token: Tk,
     prev_token: Tk,
 }
+
+enum ParserAy {
+    BadExpression(Tk),
+}
+
+use std::result::Result as StdResult;
+type Result<T> = StdResult<T, ParserAy>;
 
 #[allow(dead_code)]
 impl Parser {
@@ -162,7 +236,6 @@ impl Parser {
             tokens,
             current_position: 0,
             current_token: Tk::Default,
-            // next_token: Tk::DEFAULT,
             prev_token: Tk::Default,
         };
         p.init_tokens();
@@ -182,120 +255,244 @@ impl Parser {
     //? which calls itself again, and so on, until
     //? the parser hits a stack overflow and dies.
     // * equality  → comparison ( ( "!=" | "==" ) comparison )* ;
-    fn equality(&mut self) -> Expr {
-        let mut expr = self.comparison();
-        while self.current_token == Tk::EQ {
-            self.consume_token();
-            let operator = self.prev_token.clone();
-            let right = self.comparison();
-            expr = Expr::binary_op(expr, operator, right);
-        }
-        expr
-    }
-
-    // * comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
-    fn comparison(&mut self) -> Expr {
-        let mut expr = self.term();
-        while self.current_token == Tk::LT {
-            self.consume_token();
-            let operator = self.prev_token.clone();
-            let right = self.term();
-            expr = Expr::binary_op(expr, operator, right);
-        }
-        expr
-    }
-
     fn init_tokens(&mut self) {
         self.current_token = self.tokens[self.current_position].clone();
-        // self.next_token = self.tokens[self.current_position + 1].clone();
         self.prev_token = Tk::Default;
     }
 
     fn consume_token(&mut self) {
         self.current_position += 1;
         self.current_token = self.tokens[self.current_position].clone();
-        // self.next_token = if self.current_token == Tk::EOF {
-        //     self.tokens[self.current_position - 1].clone()
-        // } else {
-        //     self.tokens[self.current_position + 1].clone()
-        // };
         self.prev_token = self.tokens[self.current_position - 1].clone();
+    }
 
-        // println!("consumed {:?}", self.current_token);
-        // println!("next {:?}", self.next_token);
-        // println!("prev {:?}", self.prev_token);
+    fn parse(&mut self) -> Expr {
+        /*
+         * When a syntax error does occur, this method returns null.
+         * That’s OK. The parser promises not to crash or hang on
+         * invalid syntax, but it doesn’t promise to return a
+         * usable syntax tree if an error is found. As soon as
+         * the parser reports an error, hadError gets set, and
+         * subsequent phases are skipped.
+         */
+        self.expression().unwrap_or_else(|err| {
+            match err {
+                ParserAy::BadExpression(bad_token) => {
+                    println!(
+                        "❌ desde parse!, expected expression got {:?}😱❗",
+                        bad_token
+                    )
+                }
+            };
+
+            Expr::None
+        })
+    }
+
+    /*
+     * different ways to error handling in rust 😏
+     * the methods below will have the checked ✅ strategy:
+     *
+     * ✅ matching
+     * ✅ you can use String as Errors	  Result<(), String>
+     *                                      @see Parse#equality
+     *                                      @see Parse#comparison
+     *                                      @see Parse#term
+     *                                      @see Parse#factor
+     *                                      @see Parse#unary
+     *                                      @see Parse#primary
+     *
+     * errors #1	                      let-else
+     *                                      @link https://rust-lang.github.io/rfcs/3137-let-else.html
+     *                                      @see Parse#parse
+     *
+     * ✅ errors #2	                      unwrap_or_else
+     * shortcut error	                    using expect("custom error")
+     * ✅ question mark operator	          maybe_Error()?.chained_maybe_error()?
+     * errors #3	                        map_error
+     * ✅ Enums as Errors                  Result<(), MyError>
+     * yeet     	                        yeet + yeet crate
+     * thiserror                            crate
+     * anyhow	                            crate + trait objects
+     * eyre                                 crate
+     */
+    fn expression(&mut self) -> Result<Expr> {
+        self.equality()
+    }
+
+    fn equality(&mut self) -> Result<Expr> {
+        let mut expr = self.comparison()?;
+        while self.current_token == Tk::EQ {
+            self.consume_token();
+            let operator = self.prev_token.clone();
+            let right = self.comparison()?;
+            expr = Expr::binary_op(expr, operator, right);
+        }
+        Ok(expr)
+    }
+
+    // * comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
+    fn comparison(&mut self) -> Result<Expr> {
+        let mut expr = self.term()?;
+        while self.current_token == Tk::LT {
+            self.consume_token();
+            let operator = self.prev_token.clone();
+            let right = self.term()?;
+            expr = Expr::binary_op(expr, operator, right);
+        }
+        Ok(expr)
     }
 
     // * term       = _{ factor ~ ((sub | add) ~ factor)* }
-    fn term(&mut self) -> Expr {
-        let mut expr = self.factor();
+    fn term(&mut self) -> Result<Expr> {
+        let mut expr = self.factor()?;
         while self.current_token == Tk::Sub || self.current_token == Tk::Mul {
             self.consume_token();
             let operator = self.prev_token.clone();
-            let right = self.factor();
+            let right = self.factor()?;
             expr = Expr::binary_op(expr, operator, right);
         }
-        expr
+        Ok(expr)
     }
 
     // * factor     = _{ unary ~ ((div | mul) ~ unary)* }
-    fn factor(&mut self) -> Expr {
-        let mut expr = self.unary();
+    fn factor(&mut self) -> Result<Expr> {
+        let mut expr = self.unary()?;
         while self.current_token == Tk::Mul {
             self.consume_token();
             let operator = self.prev_token.clone();
-            let right = self.unary();
+            let right = self.unary()?;
             expr = Expr::binary_op(expr, operator, right);
         }
-        expr
+        Ok(expr)
     }
 
     // * unary      = _{ (bang | neg) ~ unary | primary }
-    fn unary(&mut self) -> Expr {
+    fn unary(&mut self) -> Result<Expr> {
         if self.current_token == Tk::Bang || self.current_token == Tk::Sub {
             self.consume_token();
             let operator = self.prev_token.clone();
-            let right = self.unary();
-            return Expr::unary_op(operator, right);
+            let right = self.unary()?;
+            return Ok(Expr::unary_op(operator, right));
         }
         self.primary()
     }
 
-    fn primary(&mut self) -> Expr {
+    // todo: Add support for comma expressions
+    // todo: add support for the C-style conditional or “ternary” operator ?:.
+    // What precedence level is allowed between the ? and :?
+    // Is the whole operator left-associative or right-associative?
+    // todo: Add error productions to handle each binary operator appearing without a left-hand operand.
+    // In other words, detect a binary operator appearing at the beginning of an expression
+    fn primary(&mut self) -> Result<Expr> {
         match self.current_token {
             Tk::False => {
                 self.consume_token();
-                Expr::literal("false")
+                Ok(Expr::literal("false"))
             }
             Tk::Num(val) => {
                 self.consume_token();
-                Expr::literal(val)
+                Ok(Expr::literal(val))
             }
             Tk::Float(val) => {
                 self.consume_token();
-                Expr::literal(val)
+                Ok(Expr::literal(val))
             }
-
             Tk::Lpar => {
                 self.consume_token();
-                let expr = self.expression();
-                // self.consume_token(); //? "Expect ')' after expression.");
+                let expr = self.expression()?;
                 if self.current_token != Tk::Rpar {
-                    panic!("❌no no!");
+                    report_err(Tk::Rpar, self.current_token.clone(), "')' after EXPRESSION");
                 }
                 self.consume_token();
-                Expr::grouping(expr)
+                Ok(Expr::grouping(expr))
             }
-            _ => unreachable!(),
+            _ => Err(ParserAy::BadExpression(self.current_token.clone())),
         }
     }
 
-    fn expression(&mut self) -> Expr {
-        self.equality()
+    // private void synchronize() {
+    //     advance();
+
+    //     while (!isAtEnd()) {
+    //       if (previous().type == SEMICOLON) return;
+
+    //       switch (peek().type) {
+    //         case CLASS:
+    //         case FUN:
+    //         case VAR:
+    //         case FOR:
+    //         case IF:
+    //         case WHILE:
+    //         case PRINT:
+    //         case RETURN:
+    //           return;
+    //       }
+
+    //       advance();
+    //     }
+    //   }
+
+    fn synchronize(&mut self) {
+        self.consume_token();
+
+        while self.current_token != Tk::End {
+            if self.prev_token == Tk::Semi {
+                return;
+            }
+
+            match self.current_token {
+                Tk::Class
+                | Tk::Fn
+                | Tk::Var
+                | Tk::For
+                | Tk::If
+                | Tk::While
+                | Tk::Print
+                | Tk::Return => return,
+                _ => self.consume_token(),
+            }
+        }
+    }
+}
+
+#[allow(unused)]
+struct Lox {
+    had_error: bool,
+    had_runtime_error: bool,
+}
+
+#[allow(unused)]
+impl Lox {
+    fn new() -> Self {
+        Self {
+            had_error: false,
+            had_runtime_error: false,
+        }
+    }
+
+    fn run(&self, tokens_instead_of_source_code: Vec<Tk>) {
+        let mut p = Parser::new(tokens_instead_of_source_code);
+        p.parse();
+        //*  Stop if there was a syntax error.
+        if self.had_error {}
     }
 }
 
 fn main() {
+    /*
+     * A parser really has two jobs:
+     *
+     * - Given a valid sequence of tokens, produce a corresponding syntax tree.
+     *
+     * - Given an invalid sequence of tokens, detect any errors and tell
+     * the user about their mistakes.
+     */
+    //? When the user doesn’t realize the syntax is wrong,
+    //? it is up to the parser to help guide them back onto the right path.
+    //? The parser can’t read your mind❓
+    //? With the way things are going in machine learning these days,
+    //? who knows what the future will bring?
     let expression = Expr::binary_op(
         Expr::unary_op(Tk::Sub, Expr::literal(123)),
         Tk::Mul,
@@ -323,12 +520,13 @@ mod tests {
 
     //* ->  1 - (2 * 3) < 4 == false
     #[test]
-    fn parser_works() {
+    #[should_panic]
+    fn parser_works_with_err() {
         let tokens = vec![
             Tk::Num(1),
             Tk::Sub,
             Tk::Lpar,
-            Tk::Num(2),
+            Tk::Class,
             Tk::Mul,
             Tk::Num(3),
             Tk::Rpar,
@@ -339,8 +537,37 @@ mod tests {
             Tk::End,
         ];
         let mut parser = Parser::new(tokens);
+        let expression = parser.parse();
+
         assert_eq!(
-            parser.expression().to_string(),
+            //*  "(- 1 (* (group ❌ algún error!) 3))"
+            expression.to_string(),
+            "(== (< (- 1 (group (* 2 3))) 4) false)".to_string()
+        );
+    }
+
+    //* ->  1 - (2 * 3( < 4 == false
+    #[test]
+    fn parser_works() {
+        let tokens = vec![
+            Tk::Num(1),
+            Tk::Sub,
+            Tk::Lpar,
+            Tk::Num(2),
+            Tk::Mul,
+            Tk::Num(3),
+            Tk::Lpar,
+            Tk::LT,
+            Tk::Num(4),
+            Tk::EQ,
+            Tk::False,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let expression = parser.parse();
+
+        assert_eq!(
+            expression.to_string(),
             "(== (< (- 1 (group (* 2 3))) 4) false)".to_string()
         );
     }
@@ -358,8 +585,10 @@ mod tests {
             Tk::End,
         ];
         let mut parser = Parser::new(tokens);
+        let expression = parser.parse();
+
         assert_eq!(
-            parser.expression().to_string(),
+            expression.to_string(),
             "(* (-123) (group 45.65))".to_string()
         );
     }
