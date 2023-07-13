@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::fmt::{self, Display};
 
 #[allow(unused)]
@@ -52,6 +53,7 @@ fn report_err(expected_token: Tk, token: Tk, context_message: &str) {
  * minimal parser and token for
  * 1 - (2 * 3) < 4 == false
  */
+#[derive(Debug, PartialEq)]
 enum Expr {
     Unary {
         operator: Tk,
@@ -67,6 +69,7 @@ enum Expr {
     None,
 }
 
+#[derive(Debug, PartialEq)]
 enum Value {
     I32(i32),
     F64(f64),
@@ -214,6 +217,13 @@ impl fmt::Display for Expr {
     }
 }
 
+#[derive(Debug, PartialEq)]
+enum Statement {
+    None,
+    Print(Expr),
+    Expr(Expr),
+}
+
 #[allow(dead_code)]
 struct Parser {
     tokens: Vec<Tk>,
@@ -228,6 +238,7 @@ enum ParserAy {
 
 use std::result::Result as StdResult;
 type Result<T> = StdResult<T, ParserAy>;
+type RStatement = StdResult<Statement, ParserAy>;
 
 #[allow(dead_code)]
 impl Parser {
@@ -242,6 +253,75 @@ impl Parser {
         p
     }
 
+    /*
+     * GRAMAR:
+     *
+     * program        → statement* EOF
+     * statement      → exprStmt  | printStmt
+     * exprStmt       → expression ";"
+     * printStmt      → "print" expression ";"
+     */
+
+    fn parse(&mut self) -> Vec<Statement> {
+        /*
+         * Now that our grammar has the correct
+         * starting rule, program, we can turn parse()
+         * into the real deal.
+         */
+        let mut result = vec![];
+
+        while self.current_token != Tk::End {
+            let statement = self.statement().unwrap_or_else(|err| {
+                match err {
+                    ParserAy::BadExpression(bad_token) => {
+                        println!(
+                            "❌ desde parse!, expected expression got {:?}😱❗",
+                            bad_token
+                        )
+                    }
+                };
+
+                Statement::None
+            });
+            result.push(statement);
+            self.consume_token();
+        }
+
+        result
+    }
+
+    fn statement(&mut self) -> RStatement {
+        /*
+         * When a syntax error does occur, this method returns null.
+         * That’s OK. The parser promises not to crash or hang on
+         * invalid syntax, but it doesn’t promise to return a
+         * usable syntax tree if an error is found. As soon as
+         * the parser reports an error, hadError gets set, and
+         * subsequent phases are skipped.
+         */
+        // self.expression().unwrap_or_else(|err| {
+        //     match err {
+        //         ParserAy::BadExpression(bad_token) => {
+        //             println!(
+        //                 "❌ desde parse!, expected expression got {:?}😱❗",
+        //                 bad_token
+        //             )
+        //         }
+        //     };
+
+        //     Expr::None
+        // });
+
+        let stt = match self.current_token {
+            Tk::Default => todo!(),
+            Tk::Print => self.print_statement()?,
+            Tk::Num(_) => todo!(),
+            Tk::Float(_) => todo!(),
+            _ => self.expr_statement()?,
+        };
+
+        Ok(stt)
+    }
     /*
      * Each method for parsing a grammar rule
      * produces a syntax tree for that rule and
@@ -264,29 +344,7 @@ impl Parser {
         self.current_position += 1;
         self.current_token = self.tokens[self.current_position].clone();
         self.prev_token = self.tokens[self.current_position - 1].clone();
-    }
-
-    fn parse(&mut self) -> Expr {
-        /*
-         * When a syntax error does occur, this method returns null.
-         * That’s OK. The parser promises not to crash or hang on
-         * invalid syntax, but it doesn’t promise to return a
-         * usable syntax tree if an error is found. As soon as
-         * the parser reports an error, hadError gets set, and
-         * subsequent phases are skipped.
-         */
-        self.expression().unwrap_or_else(|err| {
-            match err {
-                ParserAy::BadExpression(bad_token) => {
-                    println!(
-                        "❌ desde parse!, expected expression got {:?}😱❗",
-                        bad_token
-                    )
-                }
-            };
-
-            Expr::None
-        })
+        println!("tk: {:?}", self.current_token);
     }
 
     /*
@@ -454,6 +512,37 @@ impl Parser {
             }
         }
     }
+
+    fn print_statement(&mut self) -> RStatement {
+        self.consume_token();
+        // Expr value = expression();
+        let value = self.expression()?;
+        // consume(SEMICOLON, "Expect ';' after value.");
+        if self.current_token != Tk::Semi {
+            report_err(
+                Tk::Semi,
+                self.current_token.clone(),
+                "👀 expected ';' after value",
+            );
+        }
+        // return new Stmt.Print(value);
+        Ok(Statement::Print(value))
+    }
+
+    fn expr_statement(&mut self) -> RStatement {
+        // Expr expr = expression();
+        let value = self.expression()?;
+        // consume(SEMICOLON, "Expect ';' after expression.");
+        if self.current_token != Tk::Rpar {
+            report_err(
+                Tk::Semi,
+                self.current_token.clone(),
+                "👀 expected ';' after expression",
+            );
+        }
+        // return new Stmt.Expression(expr);
+        Ok(Statement::Expr(value))
+    }
 }
 
 #[allow(unused)]
@@ -518,6 +607,18 @@ mod tests {
         );
     }
 
+    //* put 1;
+    #[test]
+    fn test_print() {
+        let tokens = vec![Tk::Print, Tk::Num(1), Tk::Semi, Tk::End];
+        let mut parser = Parser::new(tokens);
+        let expression = parser.parse();
+
+        for expr in expression {
+            assert_eq!(expr, Statement::Print(Expr::Literal(Value::I32(1))));
+        }
+    }
+
     //* ->  1 - (2 * 3) < 4 == false
     #[test]
     #[should_panic]
@@ -537,7 +638,7 @@ mod tests {
             Tk::End,
         ];
         let mut parser = Parser::new(tokens);
-        let expression = parser.parse();
+        let expression = parser.expression().unwrap_or_else(|_| Expr::None);
 
         assert_eq!(
             //*  "(- 1 (* (group ❌ algún error!) 3))"
@@ -564,7 +665,7 @@ mod tests {
             Tk::End,
         ];
         let mut parser = Parser::new(tokens);
-        let expression = parser.parse();
+        let expression = parser.expression().unwrap_or_else(|_| Expr::None);
 
         assert_eq!(
             expression.to_string(),
@@ -585,7 +686,7 @@ mod tests {
             Tk::End,
         ];
         let mut parser = Parser::new(tokens);
-        let expression = parser.parse();
+        let expression = parser.expression().unwrap_or_else(|_| Expr::None);
 
         assert_eq!(
             expression.to_string(),
