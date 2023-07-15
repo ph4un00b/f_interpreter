@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::fmt::{self, Display};
 
 #[allow(unused)]
@@ -54,6 +53,7 @@ fn report_err(expected_token: Tk, token: Tk, context_message: &str) {
  * 1 - (2 * 3) < 4 == false
  */
 #[derive(Debug, PartialEq)]
+#[allow(dead_code)]
 enum Expr {
     Unary {
         operator: Tk,
@@ -74,6 +74,7 @@ enum Value {
     I32(i32),
     F64(f64),
     String(String),
+    Bool(bool),
 }
 
 impl fmt::Display for Value {
@@ -82,6 +83,7 @@ impl fmt::Display for Value {
             Value::I32(val) => write!(f, "{}", val)?,
             Value::F64(val) => write!(f, "{}", val)?,
             Value::String(val) => write!(f, "{}", val)?,
+            Value::Bool(val) => write!(f, "{}", val)?,
         }
         Ok(())
     }
@@ -147,6 +149,12 @@ where
     TValue: Display,
 {
     fn literal(val: TValue) -> Expr;
+}
+
+impl ToLiteral<bool> for Expr {
+    fn literal(val: bool) -> Self {
+        Expr::Literal(Value::Bool(val))
+    }
 }
 
 impl ToLiteral<i32> for Expr {
@@ -230,6 +238,135 @@ struct Parser {
     current_position: usize,
     current_token: Tk,
     prev_token: Tk,
+}
+
+#[allow(dead_code)]
+struct Interpreter {
+    runtime_error: bool,
+}
+
+#[allow(dead_code)]
+impl Interpreter {
+    fn new() -> Self {
+        Self {
+            runtime_error: false,
+        }
+    }
+
+    fn eval(&self, statements: Vec<Statement>) {
+        for state in statements {
+            self.execute(state);
+        }
+    }
+    fn eval_statement(&self) {}
+
+    fn execute(&self, state: Statement) {
+        match state {
+            Statement::None => todo!(),
+            Statement::Print(expr) => {
+                let value = self.eval_expr(expr);
+                println!("🎈 {value}");
+                //? refactor on complex matches❗
+                //? Expr::Literal(value) => match value {
+                //?     Value::I32(data) => {
+                //?         println!("🎈 {data}")
+                //?     },
+                //?     Value::F64(_) => todo!(),
+                //?     Value::String(_) => todo!(),
+                //? },
+                //? _ => unreachable!(),
+            }
+            Statement::Expr(_) => todo!(),
+        }
+    }
+
+    fn eval_expr(&self, expr: Expr) -> Value {
+        match expr {
+            Expr::Unary { operator, right } => {
+                /*
+                 * First, we evaluate the operand expression.
+                 * Then we apply the unary operator itself to
+                 * the result of that. There are two different
+                 * unary expressions, identified by the type of
+                 * the operator token.
+                 */
+                let right = self.eval_expr(*right);
+                match (operator, right) {
+                    (Tk::Sub, Value::I32(r)) => Value::I32(-r),
+                    (Tk::Sub, Value::F64(r)) => Value::F64(-r),
+                    (Tk::Bang, Value::Bool(false)) => Value::Bool(true),
+                    (Tk::Bang, Value::Bool(true)) => Value::Bool(false),
+                    /*
+                     * You’re probably wondering what happens
+                     * if the cast fails❓.
+                     * Fear not, we’ll get into that soon.
+                     */
+                    _ => unreachable!(),
+                }
+            }
+            Expr::Binary {
+                left,
+                operator,
+                right,
+            } => {
+                /*
+                 * Did you notice we pinned down a subtle corner of the
+                 * language semantics here? In a binary expression,
+                 * we evaluate the operands in left-to-right order.
+                 * If those operands have side effects, that choice
+                 * is user visible, so this isn’t simply an implementation
+                 * detail.
+                 */
+                let left = self.eval_expr(*left);
+                let right = self.eval_expr(*right);
+                match (left, operator, right) {
+                    // todo: +, /
+                    /*
+                     * The + operator can also be used to concatenate two strings.
+                     * To handle that, we don’t just assume the operands are
+                     * a certain type and cast them, we dynamically check the
+                     * type and choose the appropriate operation.
+                     */
+                    (Value::I32(l), Tk::Sub, Value::I32(r)) => Value::I32(l - r),
+                    (Value::I32(l), Tk::Mul, Value::I32(r)) => Value::I32(l * r),
+                    /*
+                     * comparisons:
+                     * They are basically the same as arithmetic.
+                     * The only difference is that where the arithmetic
+                     * operators produce a value whose type is the same as \
+                     * the operands (numbers or strings), the comparison
+                     * operators always produce a Boolean.
+                     */
+                    (Value::I32(l), Tk::EQ, Value::I32(r)) => Value::Bool(l.eq(&r)),
+                    (Value::F64(l), Tk::EQ, Value::F64(r)) => Value::Bool(l.eq(&r)),
+                    (Value::I32(l), Tk::LT, Value::I32(r)) => Value::Bool(l.lt(&r)),
+                    (Value::F64(l), Tk::LT, Value::F64(r)) => Value::Bool(l.lt(&r)),
+                    _ => unreachable!(),
+                }
+            }
+            Expr::Literal(value) => value,
+            Expr::Grouping(expr) => self.eval_expr(*expr),
+            _ => unreachable!(),
+        }
+    }
+
+    // #[derive(Debug, PartialEq)]
+    // enum Value {
+    //     I32(i32),
+    //     F64(f64),
+    //     String(String),
+    // }
+    // fn eval_expression(&self, expr: Value) -> Display {
+    //     let result = match expr {
+    //         Value::I32(data) => todo!(),
+    //         Value::F64(data) => todo!(),
+    //         Value::String(data) => todo!(),
+    //     };
+    //     result
+    // }
+
+    // let value = self.eval_expression(expr);
+    // println!("🎈 {value}");
 }
 
 enum ParserAy {
@@ -446,7 +583,7 @@ impl Parser {
         match self.current_token {
             Tk::False => {
                 self.consume_token();
-                Ok(Expr::literal("false"))
+                Ok(Expr::literal(false))
             }
             Tk::Num(val) => {
                 self.consume_token();
@@ -601,10 +738,59 @@ mod tests {
             Tk::Mul,
             Expr::grouping(Expr::literal(45.65)),
         );
+
         assert_eq!(
             expression.to_string(),
             "(* (-123) (group 45.65))".to_string()
         );
+    }
+
+    //* ->  !false
+    #[test]
+    fn test_bool_expressions() {
+        let tokens = vec![Tk::Bang, Tk::False, Tk::End];
+        let mut parser = Parser::new(tokens);
+        let expression = parser.expression().unwrap_or_else(|_| Expr::None);
+
+        assert_eq!(
+            expression,
+            Expr::Unary {
+                operator: Tk::Bang,
+                right: Box::new(Expr::Literal(Value::Bool(false)))
+            }
+        );
+    }
+
+    //* put 2-3 ;
+    #[test]
+    fn test_run_interpreter() {
+        let tokens = vec![
+            Tk::Print,
+            Tk::Num(2),
+            Tk::Sub,
+            Tk::Num(3),
+            Tk::Semi,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+        let inter = Interpreter::new();
+        inter.eval(statements);
+
+        // todo: assert stdout
+        //? assert_eq!(expr, Statement::Print(Expr::Literal(Value::I32(1))));
+    }
+
+    //* put 1;
+    #[test]
+    fn test_interpreter() {
+        let tokens = vec![Tk::Print, Tk::Num(1), Tk::Semi, Tk::End];
+        let mut parser = Parser::new(tokens);
+        let expression = parser.parse();
+
+        for expr in expression {
+            assert_eq!(expr, Statement::Print(Expr::Literal(Value::I32(1))));
+        }
     }
 
     //* put 1;
