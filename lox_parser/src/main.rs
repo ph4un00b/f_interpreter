@@ -64,26 +64,26 @@ enum Expr {
         operator: Tk,
         right: Box<Expr>,
     },
-    Literal(Value),
+    Literal(V),
     Grouping(Box<Expr>),
     None,
 }
 
 #[derive(Debug, PartialEq)]
-enum Value {
+enum V {
     I32(i32),
     F64(f64),
     String(String),
     Bool(bool),
 }
 
-impl fmt::Display for Value {
+impl fmt::Display for V {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::I32(val) => write!(f, "{}", val)?,
-            Value::F64(val) => write!(f, "{}", val)?,
-            Value::String(val) => write!(f, "{}", val)?,
-            Value::Bool(val) => write!(f, "{}", val)?,
+            V::I32(val) => write!(f, "{}", val)?,
+            V::F64(val) => write!(f, "{}", val)?,
+            V::String(val) => write!(f, "{}", val)?,
+            V::Bool(val) => write!(f, "{}", val)?,
         }
         Ok(())
     }
@@ -153,31 +153,31 @@ where
 
 impl ToLiteral<bool> for Expr {
     fn literal(val: bool) -> Self {
-        Expr::Literal(Value::Bool(val))
+        Expr::Literal(V::Bool(val))
     }
 }
 
 impl ToLiteral<i32> for Expr {
     fn literal(val: i32) -> Self {
-        Expr::Literal(Value::I32(val))
+        Expr::Literal(V::I32(val))
     }
 }
 
 impl ToLiteral<String> for Expr {
     fn literal(val: String) -> Self {
-        Expr::Literal(Value::String(val))
+        Expr::Literal(V::String(val))
     }
 }
 
 impl ToLiteral<&str> for Expr {
     fn literal(val: &str) -> Self {
-        Expr::Literal(Value::String(val.to_string()))
+        Expr::Literal(V::String(val.to_string()))
     }
 }
 
 impl ToLiteral<f64> for Expr {
     fn literal(val: f64) -> Self {
-        Expr::Literal(Value::F64(val))
+        Expr::Literal(V::F64(val))
     }
 }
 
@@ -265,7 +265,14 @@ impl Interpreter {
             Statement::None => todo!(),
             Statement::Print(expr) => {
                 let value = self.eval_expr(expr);
-                println!("🎈 {value}");
+                match value {
+                    Ok(val) => println!("🎈 {val}"),
+                    Err(err) => match err {
+                        RE::MustBeNumber(_) => todo!(),
+                        RE::NotNumber(_, _, _) => todo!(),
+                    },
+                }
+
                 //? refactor on complex matches❗
                 //? Expr::Literal(value) => match value {
                 //?     Value::I32(data) => {
@@ -280,7 +287,8 @@ impl Interpreter {
         }
     }
 
-    fn eval_expr(&self, expr: Expr) -> Value {
+    fn eval_expr(&self, expr: Expr) -> RValue {
+        println!("{:?}", expr);
         match expr {
             Expr::Unary { operator, right } => {
                 /*
@@ -290,12 +298,13 @@ impl Interpreter {
                  * unary expressions, identified by the type of
                  * the operator token.
                  */
-                let right = self.eval_expr(*right);
+                let right = self.eval_expr(*right)?;
                 match (operator, right) {
-                    (Tk::Sub, Value::I32(r)) => Value::I32(-r),
-                    (Tk::Sub, Value::F64(r)) => Value::F64(-r),
-                    (Tk::Bang, Value::Bool(false)) => Value::Bool(true),
-                    (Tk::Bang, Value::Bool(true)) => Value::Bool(false),
+                    (Tk::Sub, V::I32(r)) => Ok(V::I32(-r)),
+                    (Tk::Sub, V::F64(r)) => Ok(V::F64(-r)),
+                    (Tk::Sub, value) => Err(RE::MustBeNumber(value)),
+                    (Tk::Bang, V::Bool(false)) => Ok(V::Bool(true)),
+                    (Tk::Bang, V::Bool(true)) => Ok(V::Bool(false)),
                     /*
                      * You’re probably wondering what happens
                      * if the cast fails❓.
@@ -317,8 +326,16 @@ impl Interpreter {
                  * is user visible, so this isn’t simply an implementation
                  * detail.
                  */
-                let left = self.eval_expr(*left);
-                let right = self.eval_expr(*right);
+                //? Another subtle semantic choice: We evaluate both
+                //? operands before checking the type of either.
+                //? Imagine we have a function say() that prints its
+                //? argument then returns it.
+                //? We could have instead specified that the left operand
+                //? is checked before even evaluating the right.
+                let left = self.eval_expr(*left)?;
+                println!("left: {:?}", left);
+                let right = self.eval_expr(*right)?;
+                println!("right: {:?}", right);
                 match (left, operator, right) {
                     // todo: +, /
                     /*
@@ -327,8 +344,13 @@ impl Interpreter {
                      * a certain type and cast them, we dynamically check the
                      * type and choose the appropriate operation.
                      */
-                    (Value::I32(l), Tk::Sub, Value::I32(r)) => Value::I32(l - r),
-                    (Value::I32(l), Tk::Mul, Value::I32(r)) => Value::I32(l * r),
+                    (V::I32(l), Tk::Sub, V::I32(r)) => Ok(V::I32(l - r)),
+                    (V::F64(l), Tk::Sub, V::F64(r)) => Ok(V::F64(l - r)),
+                    (l, Tk::Sub, r) => Err(RE::NotNumber(l, Tk::Sub, r)),
+                    (V::I32(l), Tk::Mul, V::I32(r)) => Ok(V::I32(l * r)),
+                    (V::F64(l), Tk::Mul, V::F64(r)) => Ok(V::F64(l * r)),
+                    (l, Tk::Mul, r) => Err(RE::NotNumber(l, Tk::Mul, r)),
+                    // todo: What happens right now if you divide a number by zero? What do you think should happen?
                     /*
                      * comparisons:
                      * They are basically the same as arithmetic.
@@ -337,14 +359,33 @@ impl Interpreter {
                      * the operands (numbers or strings), the comparison
                      * operators always produce a Boolean.
                      */
-                    (Value::I32(l), Tk::EQ, Value::I32(r)) => Value::Bool(l.eq(&r)),
-                    (Value::F64(l), Tk::EQ, Value::F64(r)) => Value::Bool(l.eq(&r)),
-                    (Value::I32(l), Tk::LT, Value::I32(r)) => Value::Bool(l.lt(&r)),
-                    (Value::F64(l), Tk::LT, Value::F64(r)) => Value::Bool(l.lt(&r)),
+                    (V::I32(l), Tk::EQ, V::I32(r)) => Ok(V::Bool(l.eq(&r))),
+                    (V::F64(l), Tk::EQ, V::F64(r)) => Ok(V::Bool(l.eq(&r))),
+                    (l, Tk::EQ, r) => Err(RE::NotNumber(l, Tk::EQ, r)),
+                    (V::I32(l), Tk::LT, V::I32(r)) => Ok(V::Bool(l.lt(&r))),
+                    (V::F64(l), Tk::LT, V::F64(r)) => Ok(V::Bool(l.lt(&r))),
+                    (l, Tk::LT, r) => Err(RE::NotNumber(l, Tk::LT, r)),
+                    /*
+                     * Allowing comparisons on types other than numbers
+                     * could be useful. The operators might have a reasonable
+                     * interpretation for strings. Even comparisons among
+                     * mixed types, like 3 < "pancake" could be handy to
+                     * enable things like ordered collections of heterogeneous
+                     * types. Or it could simply lead to bugs and confusion.
+                     */
+                    // todo: + handle the case for string concatenation "'a' + 'a'"❗
+                    /*
+                     * Many languages define + such that if either operand
+                     * is a string, the other is converted to a string and
+                     * the results are then concatenated. For example,
+                     * "scone" + 4 would yield scone4.
+                     *
+                     * como lo vió en javascript 👀❗
+                     */
                     _ => unreachable!(),
                 }
             }
-            Expr::Literal(value) => value,
+            Expr::Literal(value) => Ok(value),
             Expr::Grouping(expr) => self.eval_expr(*expr),
             _ => unreachable!(),
         }
@@ -373,9 +414,14 @@ enum ParserAy {
     BadExpression(Tk),
 }
 
+enum RE {
+    MustBeNumber(V),
+    NotNumber(V, Tk, V),
+}
 use std::result::Result as StdResult;
 type Result<T> = StdResult<T, ParserAy>;
 type RStatement = StdResult<Statement, ParserAy>;
+type RValue = StdResult<V, RE>;
 
 #[allow(dead_code)]
 impl Parser {
@@ -756,7 +802,7 @@ mod tests {
             expression,
             Expr::Unary {
                 operator: Tk::Bang,
-                right: Box::new(Expr::Literal(Value::Bool(false)))
+                right: Box::new(Expr::Literal(V::Bool(false)))
             }
         );
     }
@@ -781,6 +827,22 @@ mod tests {
         //? assert_eq!(expr, Statement::Print(Expr::Literal(Value::I32(1))));
     }
 
+    //* put 2 - false ;
+    //* "throws" not a number❗
+    #[test]
+    #[should_panic]
+    fn test_runtime_error() {
+        let tokens = vec![Tk::Print, Tk::Num(2), Tk::Sub, Tk::False, Tk::Semi, Tk::End];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+        println!("{:?}", statements);
+        let inter = Interpreter::new();
+        inter.eval(statements);
+
+        // todo: assert stdout
+        //? assert_eq!(expr, Statement::Print(Expr::Literal(Value::I32(1))));
+    }
+
     //* put 1;
     #[test]
     fn test_interpreter() {
@@ -789,7 +851,7 @@ mod tests {
         let expression = parser.parse();
 
         for expr in expression {
-            assert_eq!(expr, Statement::Print(Expr::Literal(Value::I32(1))));
+            assert_eq!(expr, Statement::Print(Expr::Literal(V::I32(1))));
         }
     }
 
@@ -801,7 +863,7 @@ mod tests {
         let expression = parser.parse();
 
         for expr in expression {
-            assert_eq!(expr, Statement::Print(Expr::Literal(Value::I32(1))));
+            assert_eq!(expr, Statement::Print(Expr::Literal(V::I32(1))));
         }
     }
 
