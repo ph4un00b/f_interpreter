@@ -390,24 +390,6 @@ impl Interpreter {
             _ => unreachable!(),
         }
     }
-
-    // #[derive(Debug, PartialEq)]
-    // enum Value {
-    //     I32(i32),
-    //     F64(f64),
-    //     String(String),
-    // }
-    // fn eval_expression(&self, expr: Value) -> Display {
-    //     let result = match expr {
-    //         Value::I32(data) => todo!(),
-    //         Value::F64(data) => todo!(),
-    //         Value::String(data) => todo!(),
-    //     };
-    //     result
-    // }
-
-    // let value = self.eval_expression(expr);
-    // println!("🎈 {value}");
 }
 
 enum ParserAy {
@@ -436,6 +418,30 @@ impl Parser {
         p
     }
 
+    /*
+     * Each method for parsing a grammar rule
+     * produces a syntax tree for that rule and
+     * returns it to the caller. When the body of
+     * the rule contains a non-terminal—a reference
+     * to another rule—we call that other rule’s method.
+     */
+    //? This is why left recursion is problematic for
+    //? recursive descent. The function for a
+    //? left-recursive rule immediately calls itself,
+    //? which calls itself again, and so on, until
+    //? the parser hits a stack overflow and dies.
+    // * equality  → comparison ( ( "!=" | "==" ) comparison )* ;
+    fn init_tokens(&mut self) {
+        self.current_token = self.tokens[self.current_position].clone();
+        self.prev_token = Tk::Default;
+    }
+
+    fn consume_token(&mut self) {
+        self.current_position += 1;
+        self.current_token = self.tokens[self.current_position].clone();
+        self.prev_token = self.tokens[self.current_position - 1].clone();
+        println!("tk: {:?}", self.current_token);
+    }
     /*
      * GRAMAR:
      *
@@ -482,18 +488,6 @@ impl Parser {
          * the parser reports an error, hadError gets set, and
          * subsequent phases are skipped.
          */
-        // self.expression().unwrap_or_else(|err| {
-        //     match err {
-        //         ParserAy::BadExpression(bad_token) => {
-        //             println!(
-        //                 "❌ desde parse!, expected expression got {:?}😱❗",
-        //                 bad_token
-        //             )
-        //         }
-        //     };
-
-        //     Expr::None
-        // });
 
         let stt = match self.current_token {
             Tk::Default => todo!(),
@@ -505,62 +499,13 @@ impl Parser {
 
         Ok(stt)
     }
-    /*
-     * Each method for parsing a grammar rule
-     * produces a syntax tree for that rule and
-     * returns it to the caller. When the body of
-     * the rule contains a non-terminal—a reference
-     * to another rule—we call that other rule’s method.
-     */
-    //? This is why left recursion is problematic for
-    //? recursive descent. The function for a
-    //? left-recursive rule immediately calls itself,
-    //? which calls itself again, and so on, until
-    //? the parser hits a stack overflow and dies.
-    // * equality  → comparison ( ( "!=" | "==" ) comparison )* ;
-    fn init_tokens(&mut self) {
-        self.current_token = self.tokens[self.current_position].clone();
-        self.prev_token = Tk::Default;
-    }
 
-    fn consume_token(&mut self) {
-        self.current_position += 1;
-        self.current_token = self.tokens[self.current_position].clone();
-        self.prev_token = self.tokens[self.current_position - 1].clone();
-        println!("tk: {:?}", self.current_token);
-    }
-
-    /*
-     * different ways to error handling in rust 😏
-     * the methods below will have the checked ✅ strategy:
-     *
-     * ✅ matching
-     * ✅ you can use String as Errors	  Result<(), String>
-     *                                      @see Parse#equality
-     *                                      @see Parse#comparison
-     *                                      @see Parse#term
-     *                                      @see Parse#factor
-     *                                      @see Parse#unary
-     *                                      @see Parse#primary
-     *
-     * errors #1	                      let-else
-     *                                      @link https://rust-lang.github.io/rfcs/3137-let-else.html
-     *                                      @see Parse#parse
-     *
-     * ✅ errors #2	                      unwrap_or_else
-     * shortcut error	                    using expect("custom error")
-     * ✅ question mark operator	          maybe_Error()?.chained_maybe_error()?
-     * errors #3	                        map_error
-     * ✅ Enums as Errors                  Result<(), MyError>
-     * yeet     	                        yeet + yeet crate
-     * thiserror                            crate
-     * anyhow	                            crate + trait objects
-     * eyre                                 crate
-     */
+    // * exp =  { eq }
     fn expression(&mut self) -> Result<Expr> {
         self.equality()
     }
 
+    // * eq  = _{ comparison ~ (("!=" | "==") ~ comparison)* }
     fn equality(&mut self) -> Result<Expr> {
         let mut expr = self.comparison()?;
         while self.current_token == Tk::EQ {
