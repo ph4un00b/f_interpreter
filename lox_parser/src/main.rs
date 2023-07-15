@@ -270,6 +270,7 @@ impl Interpreter {
                     Err(err) => match err {
                         RE::MustBeNumber(_) => todo!(),
                         RE::NotNumber(_, _, _) => todo!(),
+                        RE::MustBeBoolean(_) => todo!(),
                     },
                 }
 
@@ -305,6 +306,7 @@ impl Interpreter {
                     (Tk::Sub, value) => Err(RE::MustBeNumber(value)),
                     (Tk::Bang, V::Bool(false)) => Ok(V::Bool(true)),
                     (Tk::Bang, V::Bool(true)) => Ok(V::Bool(false)),
+                    (Tk::Bang, value) => Err(RE::MustBeBoolean(value)),
                     /*
                      * You’re probably wondering what happens
                      * if the cast fails❓.
@@ -399,6 +401,7 @@ enum ParserAy {
 enum RE {
     MustBeNumber(V),
     NotNumber(V, Tk, V),
+    MustBeBoolean(V),
 }
 use std::result::Result as StdResult;
 type Result<T> = StdResult<T, ParserAy>;
@@ -736,6 +739,22 @@ mod tests {
         );
     }
 
+    //* put !42 ;
+    //* "throws" not a boolean❗
+    #[test]
+    #[should_panic = "not yet implemented"]
+    fn test_runtime_error_on_unary_bang() {
+        let tokens = vec![Tk::Print, Tk::Bang, Tk::Num(42), Tk::Semi, Tk::End];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+        println!("{:?}", statements);
+        let inter = Interpreter::new();
+        inter.eval(statements);
+
+        // todo: assert stdout
+        //? assert_eq!(expr, Statement::Print(Expr::Literal(Value::I32(1))));
+    }
+
     //* ->  !false
     #[test]
     fn test_bool_expressions() {
@@ -775,7 +794,7 @@ mod tests {
     //* put 2 - false ;
     //* "throws" not a number❗
     #[test]
-    #[should_panic]
+    #[should_panic = "not yet implemented"]
     fn test_runtime_error() {
         let tokens = vec![Tk::Print, Tk::Num(2), Tk::Sub, Tk::False, Tk::Semi, Tk::End];
         let mut parser = Parser::new(tokens);
