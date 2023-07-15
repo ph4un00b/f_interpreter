@@ -66,6 +66,7 @@ enum Expr {
     },
     Literal(V),
     Grouping(Box<Expr>),
+    Let(Tk),
     None,
 }
 
@@ -94,6 +95,7 @@ impl From<Tk> for String {
         match value {
             Tk::Num(val) => val.to_string(),
             Tk::Float(val) => val.to_string(),
+            Tk::Identifier(val) => val.to_string(),
             Tk::Sub => "-".to_string(),
             Tk::Lpar => "(".to_string(),
             Tk::Mul => "*".to_string(),
@@ -113,6 +115,7 @@ impl From<Tk> for String {
             Tk::While => "while".to_string(),
             Tk::Print => "put".to_string(),
             Tk::Return => "ret".to_string(),
+            Tk::Assign => "=".to_string(),
         }
     }
 }
@@ -124,6 +127,8 @@ enum Tk {
     Default,
     Num(i32),
     Float(f64),
+    Identifier(String),
+    Assign,
     Sub,
     Lpar,
     Mul,
@@ -219,16 +224,19 @@ impl fmt::Display for Expr {
             Expr::Literal(val) => write!(f, "{}", val)?,
             Expr::Grouping(expr) => write!(f, "(group {})", expr)?,
             Expr::None => write!(f, "❌ algún error!")?,
+            Expr::Let(name) => write!(f, "{}", String::from(name.clone()))?,
         }
 
         Ok(())
     }
 }
 
+// todo: can it be automated❓👀
 #[derive(Debug, PartialEq)]
 enum Statement {
     None,
     Print(Expr),
+    Let { name: Tk, initializer: Expr },
     Expr(Expr),
 }
 
@@ -273,18 +281,9 @@ impl Interpreter {
                         RE::MustBeBoolean(_) => todo!(),
                     },
                 }
-
-                //? refactor on complex matches❗
-                //? Expr::Literal(value) => match value {
-                //?     Value::I32(data) => {
-                //?         println!("🎈 {data}")
-                //?     },
-                //?     Value::F64(_) => todo!(),
-                //?     Value::String(_) => todo!(),
-                //? },
-                //? _ => unreachable!(),
             }
             Statement::Expr(_) => todo!(),
+            Statement::Let { name, initializer } => todo!(),
         }
     }
 
@@ -399,6 +398,43 @@ enum ParserAy {
 }
 
 enum RE {
+    /*
+     * @see: https://craftinginterpreters.com/evaluating-expressions.html#design-note
+     * It turns out even most statically typed
+     * languages do some type checks at runtime.
+     * The type system checks most type rules
+     * statically, but inserts runtime checks in
+     * the generated code for other operations.
+     * For example, in Java, the static type system
+     * assumes a cast expression will always safely
+     * succeed. After you cast some value, you can
+     * statically treat it as the destination type
+     * and not get any compile errors.
+     * But downcasts can fail, obviously.
+     * The only reason the static checker can
+     * presume that casts always succeed without
+     * violating the language’s soundness
+     * guarantees, is because the cast is
+     * checked at runtime and throws an exception
+     * on failure.
+     * A more subtle example is covariant arrays
+     * in Java and C#. The static sub-typing rules
+     * for arrays allow operations that are not sound.
+     *
+     * Consider:
+     * Object[] stuff = new Integer[1];
+     * stuff[0] = "not an int!";
+     *
+     * @phau: también pasa algo similar en typescript❗
+     *
+     * Even Haskell will let you run code with
+     * non-exhaustive matches. If you find yourself
+     * designing a statically typed language, keep in
+     * mind that you can sometimes give users more
+     * flexibility without sacrificing too many of the
+     * benefits of static safety by deferring some type
+     * checks until runtime.
+     */
     MustBeNumber(V),
     NotNumber(V, Tk, V),
     MustBeBoolean(V),
@@ -448,7 +484,8 @@ impl Parser {
     /*
      * GRAMAR:
      *
-     * program        → statement* EOF
+     * program        → declaration* EOF ;
+     * declaration    → varDecl | statement ;
      * statement      → exprStmt  | printStmt
      * exprStmt       → expression ";"
      * printStmt      → "print" expression ";"
@@ -463,7 +500,7 @@ impl Parser {
         let mut result = vec![];
 
         while self.current_token != Tk::End {
-            let statement = self.statement().unwrap_or_else(|err| {
+            let statement = self.declaration().unwrap_or_else(|err| {
                 match err {
                     ParserAy::BadExpression(bad_token) => {
                         println!(
@@ -482,6 +519,17 @@ impl Parser {
         result
     }
 
+    //* varDecl → "let" IDENTIFIER ( "=" expression )? ";" ;
+    fn declaration(&mut self) -> RStatement {
+        let result = if self.current_token == Tk::Var {
+            self.let_statement()?
+        } else {
+            self.statement()?
+        };
+        Ok(result)
+    }
+
+    //* statement → exprStmt | printStmt ;
     fn statement(&mut self) -> RStatement {
         /*
          * When a syntax error does occur, this method returns null.
@@ -573,6 +621,7 @@ impl Parser {
     // Is the whole operator left-associative or right-associative?
     // todo: Add error productions to handle each binary operator appearing without a left-hand operand.
     // In other words, detect a binary operator appearing at the beginning of an expression
+    //* primary → "true" | "false" | NUMBER | STRING | "(" expression ")" | IDENTIFIER ;
     fn primary(&mut self) -> Result<Expr> {
         match self.current_token {
             Tk::False => {
@@ -586,6 +635,10 @@ impl Parser {
             Tk::Float(val) => {
                 self.consume_token();
                 Ok(Expr::literal(val))
+            }
+            Tk::Identifier(_) => {
+                // self.consume_token();
+                Ok(Expr::Let(self.current_token.clone()))
             }
             Tk::Lpar => {
                 self.consume_token();
@@ -674,6 +727,60 @@ impl Parser {
         // return new Stmt.Expression(expr);
         Ok(Statement::Expr(value))
     }
+
+    fn let_statement(&mut self) -> RStatement {
+        /*
+         * As always, the recursive descent code follows
+         * the grammar rule. The parser has already
+         * matched the var token, so next it requires
+         * and consumes an identifier token for the
+         * variable name.
+         *
+         * "let" IDENTIFIER ( "=" expression )? ";" ;
+         */
+        self.consume_token();
+        let result_token = if let Tk::Identifier(_) = self.current_token {
+            self.current_token.clone()
+        } else {
+            report_err(
+                Tk::Identifier("name".into()),
+                self.current_token.clone(),
+                "👀 expected 'identifier'",
+            );
+            Tk::Default
+        };
+
+        /*
+         * Then, if it sees an = token, it knows there is an
+         * initializer expression and parses it. Otherwise,
+         * it leaves the initializer null.
+         */
+        self.consume_token();
+        let initializer = if let Tk::Assign = self.current_token {
+            self.consume_token();
+            self.expression()?
+        } else {
+            Expr::None
+        };
+
+        /*
+         * Finally, it consumes the required semicolon at the end
+         * of the statement. All this gets wrapped in a Stmt.Var
+         * syntax tree node and we’re groovy
+         */
+        if self.current_token != Tk::Semi {
+            report_err(
+                Tk::Semi,
+                self.current_token.clone(),
+                "👀 expected ';' after expression",
+            );
+        };
+
+        Ok(Statement::Let {
+            name: result_token,
+            initializer,
+        })
+    }
 }
 
 #[allow(unused)]
@@ -736,6 +843,49 @@ mod tests {
         assert_eq!(
             expression.to_string(),
             "(* (-123) (group 45.65))".to_string()
+        );
+    }
+
+    //* ->  let jamon = 100;
+    //* ->  let jamon = lol;
+    #[test]
+    fn test_let_declarations() {
+        let tokens = vec![
+            Tk::Var,
+            Tk::Identifier("jamon".into()),
+            Tk::Assign,
+            Tk::Num(100),
+            Tk::Semi,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let expression = parser.declaration().unwrap_or_else(|_| Statement::None);
+
+        assert_eq!(
+            expression,
+            Statement::Let {
+                name: Tk::Identifier("jamon".into()),
+                initializer: Expr::Literal(V::I32(100))
+            }
+        );
+
+        let tokens = vec![
+            Tk::Var,
+            Tk::Identifier("jamon".into()),
+            Tk::Assign,
+            Tk::Identifier("lol".into()),
+            Tk::Semi,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let expression = parser.declaration().unwrap_or_else(|_| Statement::None);
+
+        assert_eq!(
+            expression,
+            Statement::Let {
+                name: Tk::Identifier("jamon".into()),
+                initializer: Expr::Let(Tk::Identifier("lol".into()))
+            }
         );
     }
 
