@@ -863,6 +863,7 @@ impl Parser {
         let initializer = if let Tk::Assign = self.current_token {
             self.consume_token();
             self.expression()?
+            //? quizá aquí debe ir eval (identifier)❓
         } else {
             Expr::None
         };
