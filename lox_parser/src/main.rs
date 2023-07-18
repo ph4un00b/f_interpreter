@@ -718,7 +718,7 @@ impl Parser {
         let mut result = vec![];
 
         while self.current_token != Tk::End {
-            let statement = self.declaration().unwrap_or_else(|err| {
+            let statement = self.variable_or_statement().unwrap_or_else(|err| {
                 match err {
                     ParserAy::BadExpression(bad_token) => {
                         println!(
@@ -736,15 +736,63 @@ impl Parser {
         result
     }
 
-    //* varDecl → "let" IDENTIFIER ( "=" expression )? ";" ;
-    fn declaration(&mut self) -> RStatement {
+    //* let-Decl → "let" IDENTIFIER ( "=" expression )? ";" ;
+    fn variable_or_statement(&mut self) -> RStatement {
         let result = if self.current_token == Tk::Var {
-            self.let_statement()?
+            self.variable_statement()?
         } else {
             self.statement()?
         };
 
         Ok(result)
+    }
+
+    fn variable_statement(&mut self) -> RStatement {
+        /*
+         * As always, the recursive descent code follows
+         * the grammar rule. The parser has already
+         * matched the var token, so next it requires
+         * and consumes an identifier token for the
+         * variable name.
+         *
+         * "let" IDENTIFIER ( "=" expression )? ";" ;
+         */
+        self.consume_token();
+        let result_token = if let Tk::Identifier(_) = self.current_token {
+            self.current_token.clone()
+        } else {
+            report_err(
+                Tk::Identifier("name".into()),
+                self.current_token.clone(),
+                "👀 expected 'identifier'",
+            );
+            Tk::Default
+        };
+
+        /*
+         * Then, if it sees an = token, it knows there is an
+         * initializer expression and parses it. Otherwise,
+         * it leaves the initializer null.
+         */
+        self.consume_token();
+        let initializer = if let Tk::Assign = self.current_token {
+            self.consume_token();
+            self.expression()?
+        } else {
+            Expr::None
+        };
+
+        /*
+         * Finally, it consumes the required semicolon at the end
+         * of the statement. All this gets wrapped in a Stmt.Var
+         * syntax tree node and we’re groovy
+         */
+        self.report_and_consume(Tk::Semi, "👀 expected ';' after expression");
+
+        Ok(Statement::Let {
+            name: result_token,
+            initializer,
+        })
     }
 
     //* statement →  exprStmt | printStmt | block ;
@@ -769,15 +817,35 @@ impl Parser {
              * reuse block() later for parsing function bodies and we
              * don’t want that body wrapped in a Stmt.Block.
              */
-            Tk::LBrace => Statement::Block(self.block()?),
+            Tk::LBrace => Statement::Block(self.block_statement()?),
             _ => self.expr_statement()?,
         };
 
         Ok(stt)
     }
 
+    fn print_statement(&mut self) -> RStatement {
+        self.consume_token();
+        // Expr value = expression();
+        let value = self.expression()?;
+        println!("{:?}", value);
+        // consume(SEMICOLON, "Expect ';' after value.");
+        self.report_and_consume(Tk::Semi, "👀 expected ';' after value");
+        // return new Stmt.Print(value);
+        Ok(Statement::Print(value))
+    }
+
+    fn expr_statement(&mut self) -> RStatement {
+        // Expr expr = expression();
+        let value = self.expression()?;
+        // consume(SEMICOLON, "Expect ';' after expression.");
+        self.report_and_consume(Tk::Semi, "👀 expected ';' after expression");
+        // return new Stmt.Expression(expr);
+        Ok(Statement::Expr(value))
+    }
+
     //* block     → "{" declaration* "}" ;
-    fn block(&mut self) -> StdResult<Vec<Statement>, ParserAy> {
+    fn block_statement(&mut self) -> StdResult<Vec<Statement>, ParserAy> {
         self.consume_token();
         println!("{:?}", self.current_token);
         let mut result = vec![];
@@ -792,13 +860,19 @@ impl Parser {
          * If the user forgets a closing }, the parser needs to not get stuck
          */
         while self.current_token != Tk::RBrace && self.current_token != Tk::End {
-            result.push(self.declaration()?);
+            result.push(self.variable_or_statement()?);
         }
 
         self.report_and_consume(Tk::RBrace, "Expect '}' after block 👀❗");
         Ok(result)
     }
 
+    // * expression → assignment ;
+    fn expression(&mut self) -> Result<Expr> {
+        self.assignment()
+    }
+
+    //* assignment → IDENTIFIER "=" assignment | equality ;
     fn assignment(&mut self) -> Result<Expr> {
         /*
          * Here is where it gets tricky.
@@ -882,11 +956,6 @@ impl Parser {
             }
         }
         Ok(left)
-    }
-
-    // * exp =  { eq }
-    fn expression(&mut self) -> Result<Expr> {
-        self.assignment()
     }
 
     // * eq  = _{ comparison ~ (("!=" | "==") ~ comparison)* }
@@ -1032,74 +1101,6 @@ impl Parser {
                 _ => self.consume_token(),
             }
         }
-    }
-
-    fn print_statement(&mut self) -> RStatement {
-        self.consume_token();
-        // Expr value = expression();
-        let value = self.expression()?;
-        println!("{:?}", value);
-        // consume(SEMICOLON, "Expect ';' after value.");
-        self.report_and_consume(Tk::Semi, "👀 expected ';' after value");
-        // return new Stmt.Print(value);
-        Ok(Statement::Print(value))
-    }
-
-    fn expr_statement(&mut self) -> RStatement {
-        // Expr expr = expression();
-        let value = self.expression()?;
-        // consume(SEMICOLON, "Expect ';' after expression.");
-        self.report_and_consume(Tk::Semi, "👀 expected ';' after expression");
-        // return new Stmt.Expression(expr);
-        Ok(Statement::Expr(value))
-    }
-
-    fn let_statement(&mut self) -> RStatement {
-        /*
-         * As always, the recursive descent code follows
-         * the grammar rule. The parser has already
-         * matched the var token, so next it requires
-         * and consumes an identifier token for the
-         * variable name.
-         *
-         * "let" IDENTIFIER ( "=" expression )? ";" ;
-         */
-        self.consume_token();
-        let result_token = if let Tk::Identifier(_) = self.current_token {
-            self.current_token.clone()
-        } else {
-            report_err(
-                Tk::Identifier("name".into()),
-                self.current_token.clone(),
-                "👀 expected 'identifier'",
-            );
-            Tk::Default
-        };
-
-        /*
-         * Then, if it sees an = token, it knows there is an
-         * initializer expression and parses it. Otherwise,
-         * it leaves the initializer null.
-         */
-        self.consume_token();
-        let initializer = if let Tk::Assign = self.current_token {
-            self.consume_token();
-            self.expression()?
-        } else {
-            Expr::None
-        };
-
-        /*
-         * Finally, it consumes the required semicolon at the end
-         * of the statement. All this gets wrapped in a Stmt.Var
-         * syntax tree node and we’re groovy
-         */
-        self.report_and_consume(Tk::Semi, "👀 expected ';' after expression");
-
-        Ok(Statement::Let {
-            name: result_token,
-            initializer,
-        })
     }
 }
 
@@ -1340,7 +1341,9 @@ mod tests {
             Tk::End,
         ];
         let mut parser = Parser::new(tokens);
-        let expression = parser.declaration().unwrap_or_else(|_| Statement::None);
+        let expression = parser
+            .variable_or_statement()
+            .unwrap_or_else(|_| Statement::None);
 
         assert_eq!(
             expression,
@@ -1359,7 +1362,9 @@ mod tests {
             Tk::End,
         ];
         let mut parser = Parser::new(tokens);
-        let expression = parser.declaration().unwrap_or_else(|_| Statement::None);
+        let expression = parser
+            .variable_or_statement()
+            .unwrap_or_else(|_| Statement::None);
 
         assert_eq!(
             expression,

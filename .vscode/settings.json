@@ -1,6 +1,7 @@
 {
   "cSpell.language": "en,es",
   "cSpell.words": [
+    "clox",
     "combinators",
     "Earley",
     "fgetc",
