@@ -1166,11 +1166,277 @@ mod tests {
             "(* (-123) (group 45.65))".to_string()
         );
     }
-    //* let a = "global a";
-    //* let b = "global b";
-    //* let c = "global c";
+
+    //* let a = 3;
     //* {
-    //*     let a = "inner a";
+    //*     let a = a - 1;
+    //*     print a;
+    //* }
+    /*
+     * Over time, the languages I know with implicit variable declaration
+     * ended up adding more features and complexity to deal with these problems.
+     *
+     * Implicit declaration of global variables in JavaScript is
+     * universally considered a mistake today.
+     * “Strict mode” disables it and makes it a compile error.
+     *
+     * Python added a global statement to let you explicitly assign
+     * to a global variable from within a function.
+     * Later, as functional programming and nested functions
+     * became more popular, they added a similar nonlocal statement
+     * to assign to variables in enclosing functions.
+     *
+     * Ruby extended its block syntax to allow declaring certain
+     * variables to be explicitly local to the block even if the
+     * same name exists in an outer scope.
+     */
+    //* @see https://learn.microsoft.com/en-us/previous-versions/visualstudio/visual-studio-2010/xe53dz5w(v=vs.100)?redirectedfrom=MSDN
+    #[test]
+    fn test_block_variable_declaration() {
+        let tokens = vec![
+            Tk::LBrace,
+            Tk::Var,
+            Tk::Identifier("a".into()),
+            Tk::Assign,
+            Tk::Identifier("a".into()),
+            Tk::Sub,
+            Tk::Num(1),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("a".into()),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+
+        let mut environment = Env::new(None);
+        environment.define("a".into(), V::I32(3));
+        let mut inter = Interpreter::new(environment);
+        inter.eval(statements);
+
+        // todo: assert stdout
+        let last = inter.results.last().unwrap().clone();
+        assert_eq!(last, ("print".into(), V::I32(2)));
+    }
+    //* let a = 1;
+    //* let b = 2;
+    //* let c = 3;
+    //* {
+    //*     let a = 10;
+    //*     print a;
+    //*     print b;
+    //*     print c;
+    //* }
+    #[test]
+    fn test_block_eval() {
+        let tokens = vec![
+            Tk::LBrace,
+            Tk::Var,
+            Tk::Identifier("a".into()),
+            Tk::Assign,
+            Tk::Num(10),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("a".into()),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("b".into()),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("c".into()),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+
+        let mut environment = Env::new(None);
+        environment.define("a".into(), V::I32(1));
+        environment.define("b".into(), V::I32(2));
+        environment.define("c".into(), V::I32(3));
+        let mut inter = Interpreter::new(environment);
+        inter.eval(statements);
+
+        // todo: assert stdout
+        let last = inter.results.last().unwrap().clone();
+        let penultimate = inter.results.get(inter.results.len() - 2).unwrap().clone();
+        let antepenultimate = inter.results.get(inter.results.len() - 3).unwrap().clone();
+        assert_eq!(last, ("print".into(), V::I32(3)));
+        assert_eq!(penultimate, ("print".into(), V::I32(2)));
+        assert_eq!(antepenultimate, ("print".into(), V::I32(10)));
+    }
+
+    //* let a = 1;
+    //* let b = 2;
+    //* let c = 3;
+    //* {
+    //*     let a = 100;
+    //*     let b = 200;
+    //*     {
+    //*         let a = 10;
+    //*         print a;
+    //*         print b;
+    //*         print c;
+    //*     }
+    //*     print a;
+    //*     print b;
+    //*     print c;
+    //* }
+    //* print a;
+    //* print b;
+    //* print c;
+    #[test]
+    fn test_block_eval_3() {
+        let tokens = vec![
+            Tk::LBrace,
+            Tk::Var,
+            Tk::Identifier("a".into()),
+            Tk::Assign,
+            Tk::Num(100),
+            Tk::Semi,
+            Tk::Var,
+            Tk::Identifier("b".into()),
+            Tk::Assign,
+            Tk::Num(200),
+            Tk::Semi,
+            Tk::LBrace,
+            Tk::Var,
+            Tk::Identifier("a".into()),
+            Tk::Assign,
+            Tk::Num(10),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("a".into()),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("b".into()),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("c".into()),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::Print,
+            Tk::Identifier("a".into()),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("b".into()),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("c".into()),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::Print,
+            Tk::Identifier("a".into()),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("b".into()),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("c".into()),
+            Tk::Semi,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+
+        let mut environment = Env::new(None);
+        environment.define("a".into(), V::I32(1));
+        environment.define("b".into(), V::I32(2));
+        environment.define("c".into(), V::I32(3));
+        let mut inter = Interpreter::new(environment);
+        inter.eval(statements);
+
+        // todo: assert stdout
+        let last = inter.results.last().unwrap().clone();
+        let penultimate = inter.results.get(inter.results.len() - 2).unwrap().clone();
+        let antepenultimate = inter.results.get(inter.results.len() - 3).unwrap().clone();
+        assert_eq!(last, ("print".into(), V::I32(3)));
+        assert_eq!(penultimate, ("print".into(), V::I32(2)));
+        assert_eq!(antepenultimate, ("print".into(), V::I32(1)));
+    }
+
+    //* let a = 1;
+    //* let b = 2;
+    //* let c = 3;
+    //* {
+    //*     let a = 100;
+    //*     let b = 200;
+    //*     {
+    //*         let a = 10;
+    //*         print a;
+    //*         print b;
+    //*         print c;
+    //*     }
+    //*     print a;
+    //*     print b;
+    //*     print c;
+    //* }
+    #[test]
+    fn test_block_eval_2() {
+        let tokens = vec![
+            Tk::LBrace,
+            Tk::Var,
+            Tk::Identifier("a".into()),
+            Tk::Assign,
+            Tk::Num(100),
+            Tk::Semi,
+            Tk::Var,
+            Tk::Identifier("b".into()),
+            Tk::Assign,
+            Tk::Num(200),
+            Tk::Semi,
+            Tk::LBrace,
+            Tk::Var,
+            Tk::Identifier("a".into()),
+            Tk::Assign,
+            Tk::Num(10),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("a".into()),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("b".into()),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("c".into()),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::Print,
+            Tk::Identifier("a".into()),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("b".into()),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("c".into()),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+
+        let mut environment = Env::new(None);
+        environment.define("a".into(), V::I32(1));
+        environment.define("b".into(), V::I32(2));
+        environment.define("c".into(), V::I32(3));
+        let mut inter = Interpreter::new(environment);
+        inter.eval(statements);
+
+        // todo: assert stdout
+        let last = inter.results.last().unwrap().clone();
+        let penultimate = inter.results.get(inter.results.len() - 2).unwrap().clone();
+        let antepenultimate = inter.results.get(inter.results.len() - 3).unwrap().clone();
+        assert_eq!(last, ("print".into(), V::I32(3)));
+        assert_eq!(penultimate, ("print".into(), V::I32(200)));
+        assert_eq!(antepenultimate, ("print".into(), V::I32(100)));
+    }
+
+    //* {
+    //*     let a = 10;
     //*     print a;
     //*     print b;
     //*     print c;
