@@ -43,7 +43,8 @@
     "parser",
     "🧪",
     "grammar",
-    "lox"
+    "lox",
+    "linked-list"
   ],
   "rust-analyzer.linkedProjects": [
     ".\\grammars\\Cargo.toml",

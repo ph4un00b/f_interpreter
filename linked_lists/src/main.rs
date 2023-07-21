@@ -1,4 +1,5 @@
-use crate::ll01_simple::{List, Scope};
+use crate::{linked_list::List, ll01_simple::Scope};
+mod linked_list;
 mod ll01_simple;
 
 fn main() {

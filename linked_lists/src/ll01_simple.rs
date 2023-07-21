@@ -70,12 +70,14 @@ pub enum Scope<TData> {
 
 //? While enums let us declare a type that can contain one of several values
 // pub enum Scope2 {
+#[allow(unused)]
 enum Scope2 {
     Nil,
     Local(Box<Node>),
 }
 //? structs let us declare a type that contains many values at once.
 //? Let's break our List into two types: A List, and a Node.
+#[allow(unused)]
 struct Node {
     elem: i32,
     next: Scope2,
@@ -189,37 +191,4 @@ enum Scope3 {
 struct Node2 {
     elem: i32,
     next: Scope3,
-}
-
-mod test {
-    use super::*;
-
-    #[test]
-    fn basics() {
-        let mut list = List::new();
-
-        // Check empty list behaves right
-        assert_eq!(list.pop(), None);
-
-        // Populate list
-        list.push(1);
-        list.push(2);
-        list.push(3);
-
-        // Check normal removal
-        assert_eq!(list.pop(), Some(3));
-        assert_eq!(list.pop(), Some(2));
-
-        // Push some more just to make sure nothing's corrupted
-        list.push(4);
-        list.push(5);
-
-        // Check normal removal
-        assert_eq!(list.pop(), Some(5));
-        assert_eq!(list.pop(), Some(4));
-
-        // Check exhaustion
-        assert_eq!(list.pop(), Some(1));
-        assert_eq!(list.pop(), None);
-    }
 }
