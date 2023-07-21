@@ -94,6 +94,7 @@ pub struct List {
     head: Scope3,
 }
 
+#[allow(unused)]
 impl List {
     pub fn new() -> Self {
         Self { head: Scope3::Nil }
