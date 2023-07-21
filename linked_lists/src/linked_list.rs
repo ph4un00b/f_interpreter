@@ -1,14 +1,15 @@
 pub struct List<TData> {
-    head: Env<TData>,
+    pub head: Env<TData>,
 }
 
 //? yay type aliases!
 //? prefer option over manually created option❗
 type Env<TData> = Option<Box<Node<TData>>>;
 
-struct Node<TData> {
-    elem: TData,
-    next: Env<TData>,
+//todo: find a way to keep it as private❗
+pub struct Node<TData> {
+    pub elem: TData,
+    pub next: Env<TData>,
 }
 
 impl<TData> List<TData> {
@@ -40,11 +41,11 @@ impl<TData> List<TData> {
              *      pub fn as_ref(&self) -> Option<&T>;
              * }
              */
-            .as_ref()
             //? Map takes self by value, which would move the Option out of the thing it's in.
             //? Previously this was fine because we had just taken it out,
             //? but now we actually want to leave it where it was.
             //? The correct way to handle this is with the as_ref method on Option,
+            .as_ref()
             .map(|ref_node| &ref_node.elem)
     }
 
@@ -64,7 +65,21 @@ impl<TData> Drop for List<TData> {
 
 #[cfg(test)]
 mod test {
-    use super::List;
+    use super::*;
+
+    #[test]
+    fn iter() {
+        let mut list = List::new();
+        list.push(1);
+        list.push(2);
+        list.push(3);
+
+        let mut iter = list.iter();
+        assert_eq!(iter.next(), Some(&3));
+        assert_eq!(iter.next(), Some(&2));
+        assert_eq!(iter.next(), Some(&1));
+        assert_eq!(iter.next(), None);
+    }
 
     #[test]
     fn into_iter() {
