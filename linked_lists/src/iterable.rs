@@ -91,3 +91,53 @@ impl<'a, TData> Iterator for Iter<'a, TData> {
         })
     }
 }
+
+/*
+ * That's kind of a big deal, if you ask me. There are a couple reasons why this works:
+ * We take the Option<&mut> so we have exclusive access to the mutable reference.
+ *
+ * No need to worry about someone looking at it again.
+ *
+ * Rust understands that it's ok to shard a mutable reference into the subfields
+ * of the pointed-to struct, because there's no way to "go back up", and they're definitely disjoint.
+ */
+pub struct IterMut<'a, T> {
+    next: Option<&'a mut Node<T>>,
+}
+
+impl<T> List<T> {
+    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+        IterMut {
+            next: self.head.as_deref_mut(),
+        }
+    }
+}
+
+impl<'a, T> Iterator for IterMut<'a, T> {
+    //? It turns out that you can apply this basic logic to get a safe IterMut for an array or a tree as well!
+    type Item = &'a mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next
+            /*
+             * However for other types this is garbage.
+             * Integers have no ownership semantics; they're just meaningless numbers!
+             * This is why integers are marked as Copy.
+             * Copy types are known to be perfectly copyable by a bitwise copy.
+             * As such, they have a super power: when moved, the old value is still usable.
+             * As a consequence, you can even move a Copy type out of a reference without replacement!
+             *
+             * Critically to why this code was working, shared references are also Copy!
+             * Because & is copy, Option<&> is also Copy.
+             * So when we did self.next.map it was fine because the Option was just copied.
+             * Now we can't do that, because &mut isn't Copy (if you copied an &mut,
+             *  you'd have two &mut's to the same location in memory, which is forbidden).
+             * Instead, we should properly take the Option to get it.
+             */
+            .take()
+            .map(|node| {
+                self.next = node.next.as_deref_mut();
+                &mut node.elem
+            })
+    }
+}
