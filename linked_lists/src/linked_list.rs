@@ -20,13 +20,17 @@ impl<TData> List<TData> {
     pub fn push(&mut self, elem: TData) {
         let new_node = Box::new(Node {
             elem,
+            //? next -> NIl
             next: self.head.take(),
         });
         self.head = Some(new_node);
     }
 
     pub fn pop(&mut self) -> Option<TData> {
-        //? match option { None => None, Some(x) => Some(y) }
+        //? match option {
+        //?     None => None,
+        //?     Some(x) => Some(y)
+        //? }
         //? is such an incredibly common idiom that it was called map.
         self.head.take().map(|node| {
             self.head = node.next;
