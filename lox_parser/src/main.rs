@@ -1,5 +1,6 @@
 use std::fmt::{self, Display};
-mod env_01_recursive;
+// mod env_01_recursive;
+mod env_02_vector;
 
 #[allow(unused)]
 fn string_err(expected_token: Tk, token: Tk, context_message: &str) -> String {
@@ -303,7 +304,7 @@ struct Parser {
 #[allow(dead_code)]
 struct Interpreter {
     runtime_error: bool,
-    global_env: Env,
+    global_env: Vec<Env>,
     // todo: como definer sólo unas strings ala typescript❓👀
     // todo: tipo -> results: Vec<("let" | "print", V)>
     results: Vec<(String, V)>,
@@ -313,10 +314,10 @@ struct Interpreter {
 
 #[allow(dead_code)]
 impl Interpreter {
-    fn new(global_env: Env) -> Self {
+    fn new(initial_env: Env) -> Self {
         Self {
             runtime_error: false,
-            global_env,
+            global_env: vec![initial_env],
             results: vec![],
         }
     }
@@ -327,7 +328,7 @@ impl Interpreter {
         }
     }
 
-    fn eval_block(&mut self, statements: Vec<Statement>, local_env: Env) {
+    fn eval_block(&mut self, statements: Vec<Statement>) {
         /*
          * Another classic approach is to explicitly pass the environment
          * as a parameter to each visit method. To “change” the environment,
@@ -338,9 +339,8 @@ impl Interpreter {
          */
         // todo: do it in a recursive way❗
         // todo:  let previous_env = std::mem::replace(&mut self.global_env, local_env);
-        let previous_env = self.global_env.clone();
-        self.global_env = local_env;
-
+        self.global_env.push(Env::new());
+        println!(">>> new block {:?}", self.global_env);
         for state in statements {
             self.eval_statement(state);
         }
@@ -349,7 +349,8 @@ impl Interpreter {
          * interpreter’s environment field, visits all of the statements,
          * and then restores the previous value.
          */
-        self.global_env = previous_env;
+        self.global_env.pop();
+        println!("<<< block out {:?}", self.global_env);
         // todo: it gets restored even if an exception is thrown.
     }
 
@@ -376,11 +377,7 @@ impl Interpreter {
                     _ => unreachable!(),
                 }
             }
-            Statement::Block(statements) => self.eval_block(
-                statements,
-                // todo: avoid allocation, use a reference❓
-                Env::new(Some(Box::new(self.global_env.clone()))),
-            ),
+            Statement::Block(statements) => self.eval_block(statements),
             Statement::Print(expr) => {
                 let value = self.eval_expr(expr);
                 match value {
@@ -407,25 +404,33 @@ impl Interpreter {
                  * a little harsh to do so in Lox.
                  */
                 let maybe_val = self.eval_expr(initializer);
-
-                match maybe_val {
-                    Ok(val) => {
-                        // todo: test ->
-                        //* var a;
-                        //* print a; // "nil".
-                        // todo: test ->
-                        //* print a;
-                        //* var a = "too late!";
-                        self.results.push(("let".into(), val.clone()));
-
-                        let name = String::from(name);
-                        self.global_env.define(name, val);
-                    }
-                    Err(_) => todo!(),
+                if let Ok(val) = maybe_val {
+                    self.define_variable(name, val);
+                } else {
+                    // todo: err❓
+                    todo!()
                 }
             }
             Statement::None => unreachable!(),
         }
+    }
+
+    fn define_variable(&mut self, name: Tk, val: V) {
+        /*
+        todo: test ->
+        * var a;
+        * print a; // "nil".
+        todo: test ->
+        * print a;
+        * var a = "too late!";
+        */
+        self.results.push(("let".into(), val.clone()));
+        let name = String::from(name);
+        if let Some(local_values) = self.global_env.last_mut() {
+            println!("{:?}", local_values);
+            local_values.define(name, val);
+        }
+        println!("{:?}", self.global_env);
     }
 
     fn eval_expr(&mut self, expr: Expr) -> RValue {
@@ -440,10 +445,29 @@ impl Interpreter {
                  * expressions, like so:
                  */
                 //? var a = 1;
-                // todo: print a = 2; // "2".
-                self.global_env.assign(to_identifier, value)
+                self.assign_variable(value, to_identifier)
             }
-            Expr::Let(identifier) => self.global_env.get(identifier),
+            Expr::Let(identifier) => {
+                if let Some(local_values) = self.global_env.last_mut() {
+                    println!("{:?}", local_values);
+                    if let Some(value) = local_values.fetch(identifier.clone()) {
+                        return Ok(value);
+                    }
+                    let mut iter = self.global_env.iter_mut();
+                    loop {
+                        match iter.next() {
+                            Some(outer_env) => {
+                                if let Some(value) = outer_env.fetch(identifier.clone()) {
+                                    return Ok(value);
+                                }
+                            }
+                            None => return Err(RE::UndefinedVariable(identifier.into())),
+                        }
+                    }
+                } else {
+                    unreachable!("not initial global env!");
+                }
+            }
             Expr::Unary { operator, right } => {
                 /*
                  * First, we evaluate the operand expression.
@@ -567,6 +591,43 @@ impl Interpreter {
             Expr::None => unreachable!(),
         }
     }
+
+    fn assign_variable(&mut self, value: V, to_identifier: Tk) -> StdResult<V, RE> {
+        // todo: print a = 2; // "2".
+        if let Some(local_values) = self.global_env.last_mut() {
+            println!("{:?}", local_values);
+            if let Some(value) = local_values.assign(to_identifier.clone(), value.clone()) {
+                return Ok(value);
+            }
+            let mut iter = self.global_env.iter_mut();
+            loop {
+                /*
+                 * If the variable isn’t found in this environment,
+                 * we simply try the enclosing one. That in turn does
+                 * the same thing recursively, so this will ultimately
+                 * walk the entire chain. If we reach an environment
+                 * with no enclosing one and still don’t find the variable,
+                 * then we give up and report an error as before.
+                 */
+                match iter.next() {
+                    /*
+                     * It’s likely faster to iteratively walk the chain,
+                     * but I think the recursive solution is prettier.
+                     * We’ll do something much faster in clox.
+                     */
+                    Some(outer_env) => {
+                        if let Some(value) = outer_env.assign(to_identifier.clone(), value.clone())
+                        {
+                            return Ok(value);
+                        }
+                    }
+                    None => return Err(RE::UndefinedVariable(to_identifier.into())),
+                }
+            }
+        } else {
+            unreachable!();
+        }
+    }
 }
 
 enum ParserAy {
@@ -619,7 +680,8 @@ pub enum RE {
 
 use std::result::Result as StdResult;
 
-use env_01_recursive::Env;
+// use env_01_recursive::Env;
+use env_02_vector::Env;
 type Result<T> = StdResult<T, ParserAy>;
 type RStatement = StdResult<Statement, ParserAy>;
 type RValue = StdResult<V, RE>;
@@ -1262,6 +1324,7 @@ mod tests {
             "(* (-123) (group 45.65))".to_string()
         );
     }
+
     //* print 2 < 1 and 1 < 2;
     #[test]
     fn test_logical_and() {
@@ -1279,7 +1342,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut inter = Interpreter::new(Env::new(None));
+        let mut inter = Interpreter::new(Env::new());
         inter.eval(statements);
         // todo: assert stdout
         let last = inter.results.last().unwrap().clone();
@@ -1303,7 +1366,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut inter = Interpreter::new(Env::new(None));
+        let mut inter = Interpreter::new(Env::new());
         inter.eval(statements);
         // todo: assert stdout
         let last = inter.results.last().unwrap().clone();
@@ -1334,7 +1397,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut inter = Interpreter::new(Env::new(None));
+        let mut inter = Interpreter::new(Env::new());
         inter.eval(statements);
         // todo: assert stdout
         let last = inter.results.last().unwrap().clone();
@@ -1362,7 +1425,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut inter = Interpreter::new(Env::new(None));
+        let mut inter = Interpreter::new(Env::new());
         inter.eval(statements);
         // todo: assert stdout
         let last = inter.results.last().unwrap().clone();
@@ -1385,7 +1448,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut inter = Interpreter::new(Env::new(None));
+        let mut inter = Interpreter::new(Env::new());
         inter.eval(statements);
         // todo: assert stdout
         let last = inter.results.last().unwrap().clone();
@@ -1436,7 +1499,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
 
-        let mut environment = Env::new(None);
+        let mut environment = Env::new();
         environment.define("a".into(), V::I32(3));
         let mut inter = Interpreter::new(environment);
         inter.eval(statements);
@@ -1479,7 +1542,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
 
-        let mut environment = Env::new(None);
+        let mut environment = Env::new();
         environment.define("a".into(), V::I32(1));
         environment.define("b".into(), V::I32(2));
         environment.define("c".into(), V::I32(3));
@@ -1568,7 +1631,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
 
-        let mut environment = Env::new(None);
+        let mut environment = Env::new();
         environment.define("a".into(), V::I32(1));
         environment.define("b".into(), V::I32(2));
         environment.define("c".into(), V::I32(3));
@@ -1645,7 +1708,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
 
-        let mut environment = Env::new(None);
+        let mut environment = Env::new();
         environment.define("a".into(), V::I32(1));
         environment.define("b".into(), V::I32(2));
         environment.define("c".into(), V::I32(3));
@@ -1739,7 +1802,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut environment = Env::new(None);
+        let mut environment = Env::new();
         environment.define("a".into(), V::I32(20));
         let mut inter = Interpreter::new(environment);
         inter.eval(statements);
@@ -1764,7 +1827,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
 
-        let mut inter = Interpreter::new(Env::new(None));
+        let mut inter = Interpreter::new(Env::new());
         inter.eval(statements);
 
         // todo: assert stdout
@@ -1809,7 +1872,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut environment = Env::new(None);
+        let mut environment = Env::new();
         environment.define("a".into(), V::I32(2));
         environment.define("b".into(), V::I32(4));
         let mut inter = Interpreter::new(environment);
@@ -1876,7 +1939,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
 
-        let mut inter = Interpreter::new(Env::new(None));
+        let mut inter = Interpreter::new(Env::new());
         inter.eval(statements);
 
         // todo: assert stdout
@@ -1911,7 +1974,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut inter = Interpreter::new(Env::new(None));
+        let mut inter = Interpreter::new(Env::new());
         inter.eval(statements);
 
         // todo: assert stdout
@@ -1928,7 +1991,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
         println!("{:?}", statements);
-        let mut inter = Interpreter::new(Env::new(None));
+        let mut inter = Interpreter::new(Env::new());
         inter.eval(statements);
 
         // todo: assert stdout
