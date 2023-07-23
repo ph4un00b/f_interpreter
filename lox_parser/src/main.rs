@@ -54,7 +54,7 @@ fn report_err(expected_token: Tk, token: Tk, context_message: &str) {
  * minimal parser and token for
  * 1 - (2 * 3) < 4 == false
  */
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 #[allow(dead_code)]
 enum Expr {
     Unary {
@@ -275,10 +275,21 @@ impl fmt::Display for Expr {
 }
 
 // todo: can it be automated❓👀
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum Statement {
     None,
     Expr(Expr),
+    /*
+     * The node stores the condition and body.
+     * Here you can see why it’s nice to have separate base
+     * classes for expressions and statements.
+     * The field declarations make it clear that the condition
+     * is an expression and the body is a statement.
+     */
+    While {
+        condition: Expr,
+        body: Box<Statement>,
+    },
     Cond {
         condition: Expr,
         then_statement: Box<Statement>,
@@ -356,6 +367,13 @@ impl Interpreter {
 
     fn eval_statement(&mut self, state: Statement) {
         match state {
+            Statement::While { condition, body } => {
+                //? este el truco, evaluar en cada loop❗
+                while self.eval_expr(condition.clone()) == Ok(V::Bool(true)) {
+                    // todo: improve allocations❓👀
+                    self.eval_statement(*body.clone());
+                }
+            }
             Statement::Cond {
                 condition,
                 then_statement,
@@ -393,7 +411,9 @@ impl Interpreter {
                     },
                 }
             }
-            Statement::Expr(_) => todo!(),
+            Statement::Expr(expr) => {
+                let _ = self.eval_expr(expr);
+            }
             Statement::Let { name, initializer } => {
                 /*
                  * If the variable has an initializer, we evaluate it.
@@ -634,6 +654,7 @@ enum ParserAy {
     BadExpression(Tk),
 }
 
+#[derive(PartialEq)]
 pub enum RE {
     /*
      * @see: https://craftinginterpreters.com/evaluating-expressions.html#design-note
@@ -731,10 +752,12 @@ impl Parser {
      * statement      → exprStmt
      *                  | ifStmt
      *                  | printStmt
+     *                  | whileStmt
      *                  | block ;
      * exprStmt       → expression ";"
      * ifStmt         → "if" "(" expression ")" statement ( "else" statement )? ;
      * printStmt      → "print" expression ";"
+     * whileStmt      → "while" "(" expression ")" statement ;
      * block          → "{" declaration* "}" ;
      */
 
@@ -824,8 +847,14 @@ impl Parser {
         })
     }
 
-    //* statement →  exprStmt | printStmt | block ;
-    //* block     → "{" declaration* "}" ;
+    /*
+     * statement      → exprStmt
+     *                  | forStmt
+     *                  | ifStmt
+     *                  | printStmt
+     *                  | whileStmt
+     *                  | block ;
+     */
     fn statement(&mut self) -> RStatement {
         /*
          * When a syntax error does occur, this method returns null.
@@ -836,6 +865,7 @@ impl Parser {
          * subsequent phases are skipped.
          */
         let stt = match self.current_token {
+            Tk::While => self.while_statement()?,
             Tk::If => self.conditional_statement()?,
             Tk::Print => self.print_statement()?,
             /*
@@ -852,6 +882,23 @@ impl Parser {
         };
 
         Ok(stt)
+    }
+
+    fn while_statement(&mut self) -> RStatement {
+        self.consume_token();
+        // consume(LEFT_PAREN, "Expect '(' after 'while'.");
+        self.report_and_consume(Tk::Lpar, "Expect '(' after 'while'");
+        // Expr condition = expression();
+        let condition = self.expression()?;
+        // consume(RIGHT_PAREN, "Expect ')' after condition.");
+        self.report_and_consume(Tk::Rpar, "Expect ')' after 'while'");
+        // Stmt body = statement();
+        let body = self.statement()?;
+        // return new Stmt.While(condition, body);
+        Ok(Statement::While {
+            condition,
+            body: Box::new(body),
+        })
     }
 
     // * ifStmt  → "if" "(" expression ")" statement ( "else" statement )? ;
@@ -1310,6 +1357,45 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    //* var i = 10;
+    //* while (0 < i) {
+    //*     print i;
+    //*     i = i - 1;
+    //* }
+    #[test]
+    fn test_while() {
+        let tokens = vec![
+            Tk::While,
+            Tk::Lpar,
+            Tk::Num(0),
+            Tk::LT,
+            Tk::Identifier("i".into()),
+            Tk::Rpar,
+            Tk::LBrace,
+            Tk::Print,
+            Tk::Identifier("i".into()),
+            Tk::Semi,
+            Tk::Identifier("i".into()),
+            Tk::Assign,
+            Tk::Identifier("i".into()),
+            Tk::Sub,
+            Tk::Num(1),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+        let mut environment = Env::new();
+        environment.define("i".into(), V::I32(10));
+        let mut inter = Interpreter::new(environment);
+        inter.eval(statements);
+        // todo: assert stdout
+        let last = inter.results.last().unwrap().clone();
+        // println!("{:?}", inter.results);
+        assert_eq!(last, ("print".into(), V::I32(1)));
+    }
 
     #[test]
     fn it_works() {
