@@ -15,6 +15,7 @@
     "LESSGREATER",
     "LPAREN",
     "LTHAN",
+    "metasyntaxes",
     "mixfix",
     "NOTEQ",
     "nuds",
