@@ -865,6 +865,7 @@ impl Parser {
          * subsequent phases are skipped.
          */
         let stt = match self.current_token {
+            Tk::For => self.for_statement()?,
             Tk::While => self.while_statement()?,
             Tk::If => self.conditional_statement()?,
             Tk::Print => self.print_statement()?,
@@ -882,6 +883,146 @@ impl Parser {
         };
 
         Ok(stt)
+    }
+
+    /*
+     * forStmt      → "for"
+     *                "("
+     *                      ( varDecl | exprStmt | ";" )
+     *                      expression? ";"
+     *                      expression?
+     *                ")"
+     *                statement ;
+     */
+    fn for_statement(&mut self) -> RStatement {
+        /*
+         * We’re going to desugar for loops to the while loops
+         * and other statements the interpreter already handles.
+         * In our simple interpreter, desugaring really doesn’t
+         * save us much work, but it does give me an excuse
+         * to introduce you to the technique.
+         * So, unlike the previous statements, we won’t add
+         * a new syntax tree node. Instead, we go straight to parsing. First, add an import we’ll need soon.
+         */
+        self.consume_token();
+        // consume(LEFT_PAREN, "Expect '(' after 'for'.");
+        self.report_and_consume(Tk::Lpar, "Expect '(' after 'for'");
+        // Stmt initializer;
+        // if (match(SEMICOLON)) {
+        //   initializer = null;
+        // } else if (match(VAR)) {
+        //   initializer = varDeclaration();
+        // } else {
+        //   initializer = expressionStatement();
+        // }
+        let initializer = match self.current_token {
+            //? If the token following the ( is a semicolon then the initializer has been omitted.
+            Tk::Semi => Statement::None,
+            //? Otherwise, we check for a var keyword to see if it’s a variable declaration.
+            Tk::Var => self.variable_statement()?,
+            //? If neither of those matched, it must be an expression.
+            //? We parse that and wrap it in an expression statement
+            //? so that the initializer is always of type Stmt
+            _ => self.expr_statement()?,
+        };
+        // Expr condition = null;
+        // if (!check(SEMICOLON)) {
+        //   condition = expression();
+        // }
+        let condition = if self.current_token != Tk::Semi {
+            self.expression()?
+        } else {
+            Expr::None
+        };
+        // consume(SEMICOLON, "Expect ';' after loop condition.");
+        self.report_and_consume(Tk::Semi, "Expect ';' after 'loop condition'");
+        //? Again, we look for a semicolon to see if the clause has been omitted.
+        //? The last clause is the increment.
+        // Expr increment = null;
+        // if (!check(RIGHT_PAREN)) {
+        //   increment = expression();
+        // }
+        let increment = if self.current_token != Tk::Rpar {
+            self.expression()?
+        } else {
+            Expr::None
+        };
+        // consume(RIGHT_PAREN, "Expect ')' after for clauses.");
+        self.report_and_consume(Tk::Rpar, "Expect ')' after 'for clauses'");
+        //? It’s similar to the condition clause except this one is
+        //? terminated by the closing parenthesis.
+        //? All that remains is the body. 😏
+        // Stmt body = statement();
+        let body = self.statement()?;
+
+        /*
+         * We’ve parsed all of the various pieces of the for loop and
+         * the resulting AST nodes are sitting in a handful of Java local variables.
+         * This is where the desugaring comes in.
+         * We take those and use them to synthesize syntax tree nodes that
+         * express the semantics of the for loop, like the
+         * hand-desugar example I showed you earlier.
+         *
+         * The code is a little simpler if we work backward,
+         * so we start with the increment clause.
+         */
+        // if (increment != null) {
+        //     body = new Stmt.Block(
+        //         Arrays.asList(
+        //             body,
+        //             new Stmt.Expression(increment)));
+        let body = if let Expr::None = increment {
+            Statement::None
+        } else {
+            Statement::Block(vec![body, Statement::Expr(increment)])
+        };
+
+        /*
+         * The increment, if there is one, executes after the body in
+         * each iteration of the loop.
+         * We do that by replacing the
+         * body with a little block that contains the original body
+         * followed by an expression statement that evaluates the increment.
+         */
+        let body = if let Expr::None = condition {
+            /*
+             * Next, we take the condition and the body and build the loop
+             * using a primitive while loop.
+             * If the condition is omitted, we jam in true to make an infinite loop.
+             */
+            Statement::While {
+                condition: Expr::Literal(V::Bool(true)),
+                body: Box::new(body),
+            }
+        } else {
+            Statement::While {
+                condition,
+                body: Box::new(body),
+            }
+        };
+
+        //  if (initializer != null) {
+        //     body = new Stmt.Block(Arrays.asList(initializer, body));
+        //   }
+        let body = if let Statement::None = initializer {
+            Statement::None
+        } else {
+            /*
+             * Finally, if there is an initializer, it runs once before the entire loop.
+             * We do that by, again, replacing the whole statement with a block
+             * that runs the initializer and then executes the loop.
+             */
+            Statement::Block(vec![initializer, body])
+        };
+
+        /*
+         * That’s it. Our interpreter now supports C-style for loops
+         * and we didn’t have to touch the Interpreter class at all.
+         * Since we desugar to nodes the interpreter already knows how to visit,
+         * there is no more work to do.
+         */
+        Ok(body)
+        // return body;
     }
 
     fn while_statement(&mut self) -> RStatement {
@@ -1357,6 +1498,62 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    //* let a = 0;
+    //* let temp = 0;
+    //* for (let b = 1; -10_000 < a; b = temp - b) {
+    //*     print a;
+    //*     temp = a;
+    //*     a = b;
+    //* }
+    //* -> 10_946
+    #[test]
+    fn test_for() {
+        let tokens = vec![
+            Tk::For,
+            Tk::Lpar,
+            Tk::Var,
+            Tk::Identifier("b".into()),
+            Tk::Assign,
+            Tk::Num(1),
+            Tk::Semi,
+            Tk::Num(-10_000),
+            Tk::LT,
+            Tk::Identifier("a".into()),
+            Tk::Semi,
+            Tk::Identifier("b".into()),
+            Tk::Assign,
+            Tk::Identifier("temp".into()),
+            Tk::Sub,
+            Tk::Identifier("b".into()),
+            Tk::Rpar,
+            Tk::LBrace,
+            Tk::Print,
+            Tk::Identifier("a".into()),
+            Tk::Semi,
+            Tk::Identifier("temp".into()),
+            Tk::Assign,
+            Tk::Identifier("a".into()),
+            Tk::Semi,
+            Tk::Identifier("a".into()),
+            Tk::Assign,
+            Tk::Identifier("b".into()),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+        let mut environment = Env::new();
+        environment.define("a".into(), V::I32(0));
+        environment.define("temp".into(), V::I32(0));
+        let mut inter = Interpreter::new(environment);
+        inter.eval(statements);
+        // todo: assert stdout
+        let last = inter.results.last().unwrap().clone();
+        // println!("{:#?}", inter.results);
+        assert_eq!(last, ("print".into(), V::I32(10_946)));
+    }
 
     //* var i = 10;
     //* while (0 < i) {
