@@ -117,10 +117,60 @@ pub enum V {
     Bool(bool),
 }
 
+trait Arity {
+    fn arity(&self) -> usize;
+}
+
+impl Arity for V {
+    fn arity(&self) -> usize {
+        match self {
+            V::Callable(fn_name) => match fn_name.as_str() {
+                //todo: maybe use an enum to have compile time checks ❓
+                "clock" => 0,
+                _ => panic!(),
+            },
+            _ => {
+                // Handle other variants if needed
+                // For example, return a default arity value or throw an error
+                panic!()
+            }
+        }
+    }
+}
+trait FCallable {
+    fn call(&self, interpreter: Interpreter, arguments: Vec<V>) -> V;
+}
+
+impl FCallable for V {
+    fn call(&self, interpreter: Interpreter, arguments: Vec<V>) -> V {
+        match self {
+            V::Callable(fn_name) => match fn_name.as_str() {
+                "clock" => {
+                    let current_time = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("Failed to get current time");
+
+                    V::F64(current_time.as_secs() as f64)
+                }
+                _ => panic!(),
+            },
+            _ => {
+                // Handle other variants if needed
+                // For example, return a default arity value or throw an error
+                panic!()
+            }
+        }
+    }
+}
+
 impl fmt::Display for V {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            V::Callable(id) => write!(f, "#{}", id)?,
+            V::Callable(fn_name) => match fn_name.as_str() {
+                "clock" => write!(f, "#<native-{}>", fn_name)?,
+                _ => write!(f, "#{}", fn_name)?,
+            },
+            // V::Callable(id) => write!(f, "#{}", id)?,
             V::I32(val) => write!(f, "{}", val)?,
             V::F64(val) => write!(f, "{}", val)?,
             V::String(val) => write!(f, "{}", val)?,
@@ -346,9 +396,31 @@ struct Interpreter {
 #[allow(dead_code)]
 impl Interpreter {
     fn new(initial_env: Env) -> Self {
+        /*
+         * In Lox, functions and variables occupy the same
+         * namespace. In Common Lisp, the two live in their
+         * own worlds.
+         * A function and variable with the same name don’t
+         * collide. If you call the name, it looks up the
+         * function. If you refer to it, it looks up the
+         * variable.
+         * This does require jumping through some hoops when
+         * you do want to refer to a function as a first-class
+         * value.
+         *
+         * Richard P. Gabriel and Kent Pitman coined the
+         * terms “Lisp-1” to refer to languages like
+         * Scheme that put functions and variables in
+         * the same namespace, and “Lisp-2” for languages
+         * like Common Lisp that partition them.
+         * Despite being totally opaque, those names have
+         * since stuck. Lox is a Lisp-1.
+         */
+        let mut preludio = Env::new();
+        preludio.define("clock".to_string(), V::Callable("clock".to_string()));
         Self {
             runtime_error: false,
-            global_env: vec![initial_env],
+            global_env: vec![preludio, initial_env],
             results: vec![],
         }
     }
