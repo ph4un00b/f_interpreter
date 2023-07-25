@@ -3,7 +3,7 @@
   - **lox_parser**: minimal parser for `1 - (2 * 3) < 4 == false`
     - ✅ let variables
     - ✅ loops
-    - block scope
+    - ✅ block scope
     - functions
   - **linked_list**: since block scoping is similar to a linked-list, I will take tour on this
     - following: https://rust-unofficial.github.io/too-many-lists/index.html
