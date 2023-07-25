@@ -110,6 +110,7 @@ enum Expr {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum V {
+    Callable(String),
     I32(i32),
     F64(f64),
     String(String),
@@ -119,6 +120,7 @@ pub enum V {
 impl fmt::Display for V {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            V::Callable(id) => write!(f, "#{}", id)?,
             V::I32(val) => write!(f, "{}", val)?,
             V::F64(val) => write!(f, "{}", val)?,
             V::String(val) => write!(f, "{}", val)?,
@@ -414,6 +416,17 @@ impl Interpreter {
                 }
             }
             Statement::Block(statements) => self.eval_block(statements),
+            /*
+             * Once we have functions, we could simplify the language by
+             * tearing out the old print syntax and replacing it with a
+             * native function.
+             * But that would mean that examples early in the book
+             * wouldn’t run on the interpreter from later chapters
+             * and vice versa. So, for the book, I’ll leave it alone.
+             *
+             * If you’re building an interpreter for your own language,
+             * though, you may want to consider it.
+             */
             Statement::Print(expr) => {
                 let value = self.eval_expr(expr);
                 match value {
@@ -426,6 +439,8 @@ impl Interpreter {
                         RE::NotNumber(_, _, _) => todo!(),
                         RE::MustBeBoolean(_) => todo!(),
                         RE::UndefinedVariable(_) => todo!(),
+                        RE::NotCallableValue(_) => todo!(),
+                        RE::WrongCallableArity(_, _, _) => todo!(),
                     },
                 }
             }
@@ -478,7 +493,87 @@ impl Interpreter {
                 callee,
                 paren,
                 arguments,
-            } => todo!(),
+            } => {
+                /*
+                 * First, we evaluate the expression for the callee.
+                 * Typically, this expression is just an identifier
+                 * that looks up the function by its name, but it
+                 * could be anything. Then we evaluate each of the
+                 * argument expressions in order and store the resulting
+                 * values in a list.
+                 */
+                let function_value = self.eval_expr(*callee)?;
+                let mut argument_values = vec![];
+                for argument_expr in arguments {
+                    /*
+                     * This is another one of those subtle semantic choices.
+                     * Since argument expressions may have side effects,
+                     * the order they are evaluated could be user visible.
+                     *
+                     * Even so, some languages like Scheme and C don’t specify
+                     * an order.
+                     * This gives compilers freedom to reorder them
+                     * for efficiency, but means users may be unpleasantly
+                     * surprised if arguments aren’t evaluated in the order
+                     * they expect.
+                     */
+                    argument_values.push(self.eval_expr(argument_expr)?);
+                }
+
+                /*
+                 * PROBLEM #1:
+                 *
+                 * "totally not a function"();
+                 *
+                 * Strings aren’t callable in Lox.
+                 * The runtime representation of a Lox string is a
+                 * Java string, so when we cast that to LoxCallable,
+                 * the JVM will throw a ClassCastException.
+                 * We don’t want our interpreter to vomit out some nasty
+                 * Java stack trace and die.
+                 * Instead, we need to check the type ourselves first.
+                 */
+                // todo: test err❗
+
+                /*
+                 * PROBLEM #2
+                 *
+                 * add(1, 2, 3, 4); // Too many.
+                 * add(1, 2);       // Too few.
+                 *
+                 * Different languages take different approaches to this
+                 * problem. Of course, most statically typed languages
+                 * check this at compile time and refuse to compile the
+                 * code if the argument count doesn’t match the function’s
+                 * arity. JavaScript discards any extra arguments you pass.
+                 *
+                 * If you don’t pass enough, it fills in the missing
+                 * parameters with the magic
+                 * sort-of-like-null-but-not-really value undefined.
+                 *
+                 * Python is stricter. It raises a runtime error if the
+                 * argument list is too short or too long.
+                 */
+                // todo: test err❗
+                if argument_values.len() != self.callable_arity(function_value.clone()) {
+                    return Err(RE::WrongCallableArity(
+                        paren,
+                        self.callable_arity(function_value),
+                        argument_values.len(),
+                    ));
+                }
+
+                match function_value {
+                    V::Callable(_) => self.call(function_value, argument_values),
+                    /*
+                     * We still throw an exception,
+                     * but now we’re throwing our own exception type,
+                     * one that the interpreter knows to catch and
+                     * report gracefully.
+                     */
+                    _ => Err(RE::NotCallableValue(paren)),
+                }
+            }
             Expr::Assign(to_identifier, right) => {
                 let value = self.eval_expr(*right)?;
                 /*
@@ -635,6 +730,21 @@ impl Interpreter {
         }
     }
 
+    fn callable_arity(&self, function_value: V) -> usize {
+        todo!()
+    }
+
+    /*
+     * We pass in the interpreter in case the class implementing call()
+     * needs it. We also give it the list of evaluated argument values.
+     *
+     * The implementer’s job is then to return the value that the call
+     * expression produces.
+     */
+    fn call(&self, function_value: V, argument_values: Vec<V>) -> RValue {
+        todo!()
+    }
+
     fn assign_variable(&mut self, value: V, to_identifier: Tk) -> StdResult<V, RE> {
         // todo: print a = 2; // "2".
         if let Some(local_values) = self.global_env.last_mut() {
@@ -720,6 +830,8 @@ pub enum RE {
     NotNumber(V, Tk, V),
     MustBeBoolean(V),
     UndefinedVariable(String),
+    NotCallableValue(Tk),
+    WrongCallableArity(Tk, usize, usize),
 }
 
 use std::result::Result as StdResult;
