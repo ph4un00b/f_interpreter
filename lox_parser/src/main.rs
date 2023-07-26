@@ -3013,7 +3013,8 @@ mod tests {
         );
     }
 
-    //* ->  1 - (2 * 3( < 4 == false
+    // * ->  1 - (2 * 3( < 4 == false
+    // * this will try parse a function call due to '('
     #[test]
     fn parser_works() {
         let tokens = vec![
@@ -3023,7 +3024,8 @@ mod tests {
             Tk::Num(2),
             Tk::Mul,
             Tk::Num(3),
-            Tk::Lpar,
+            //todo: Tk::Lpar,
+            Tk::Rpar,
             Tk::LT,
             Tk::Num(4),
             Tk::EQ,
