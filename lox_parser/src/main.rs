@@ -111,7 +111,7 @@ enum Expr {
 #[derive(Debug, PartialEq, Clone)]
 pub enum V {
     Done,
-    Callable(Box<CallableObject>),
+    Callable(Box<FunctionObject>),
     NativeCallable(String),
     I32(i32),
     F64(f64),
@@ -140,11 +140,11 @@ impl Arity for V {
     }
 }
 trait FnCallable {
-    fn call(&self, interpreter: Interpreter, arguments: Vec<V>) -> V;
+    fn call(&self, interpreter: &mut Interpreter, arguments: Vec<V>) -> V;
 }
 
 impl FnCallable for V {
-    fn call(&self, _interpreter: Interpreter, _arguments: Vec<V>) -> V {
+    fn call(&self, _interpreter: &mut Interpreter, _arguments: Vec<V>) -> V {
         match self {
             V::NativeCallable(fn_name) => match fn_name.as_str() {
                 "clock" => {
@@ -397,12 +397,12 @@ enum Statement {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct CallableObject {
+pub struct FunctionObject {
     //* Stmt.Function
     declaration: Statement,
 }
 
-impl fmt::Display for CallableObject {
+impl fmt::Display for FunctionObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // todo: look for refactors❗
         match self.declaration.clone() {
@@ -416,7 +416,7 @@ impl fmt::Display for CallableObject {
     }
 }
 
-impl Arity for CallableObject {
+impl Arity for FunctionObject {
     fn arity(&self) -> usize {
         // todo: look for refactors❗
         /*
@@ -462,7 +462,7 @@ impl Arity for CallableObject {
 //     }
 // }
 
-impl FnCallable for CallableObject {
+impl FnCallable for FunctionObject {
     /*
      * Mechanically, the code is pretty simple.
      *
@@ -475,7 +475,7 @@ impl FnCallable for CallableObject {
      *
      * Feel free to take a moment to meditate on it if you’re so inclined.
      */
-    fn call(&self, mut interpreter: Interpreter, arguments: Vec<V>) -> V {
+    fn call(&self, interpreter: &mut Interpreter, arguments: Vec<V>) -> V {
         // todo: look for refactors❗
         let (_, fn_params, fn_body) = match self.declaration.clone() {
             Statement::FunctionDeclaration {
@@ -551,7 +551,7 @@ impl FnCallable for CallableObject {
     }
 }
 
-impl CallableObject {
+impl FunctionObject {
     fn new(declaration: Statement) -> Self {
         //todo: this should be only for Statement::Function❗
         Self { declaration }
@@ -654,7 +654,7 @@ impl Interpreter {
                  * of the function—and convert it to its runtime representation.
                  * Here, that’s a CallableObject that wraps the syntax node.
                  */
-                let function = CallableObject::new(Statement::FunctionDeclaration {
+                let function = FunctionObject::new(Statement::FunctionDeclaration {
                     name: name.clone(),
                     parameters,
                     body,
@@ -761,7 +761,7 @@ impl Interpreter {
         self.results.push(("let".into(), val.clone()));
         let name = String::from(name);
         if let Some(local_values) = self.global_env.last_mut() {
-            println!("{:?}", local_values);
+            println!("{:#?}", local_values);
             local_values.define(name, val);
         }
         println!("{:?}", self.global_env);
@@ -784,7 +784,7 @@ impl Interpreter {
                  * values in a list.
                  */
                 let function_value = self.eval_expr(*callee)?;
-                let mut argument_values = vec![];
+                let mut argument_list = vec![];
                 for argument_expr in arguments {
                     /*
                      * This is another one of those subtle semantic choices.
@@ -798,7 +798,7 @@ impl Interpreter {
                      * surprised if arguments aren’t evaluated in the order
                      * they expect.
                      */
-                    argument_values.push(self.eval_expr(argument_expr)?);
+                    argument_list.push(self.eval_expr(argument_expr)?);
                 }
 
                 /*
@@ -835,25 +835,29 @@ impl Interpreter {
                  * Python is stricter. It raises a runtime error if the
                  * argument list is too short or too long.
                  */
+                println!("{:?}", function_value);
                 // todo: test err❗
-                if argument_values.len() != self.callable_arity(function_value.clone()) {
-                    return Err(RE::WrongCallableArity(
-                        paren,
-                        self.callable_arity(function_value),
-                        argument_values.len(),
-                    ));
-                }
-
-                match function_value {
-                    V::NativeCallable(_) => self.call(function_value, argument_values),
+                let function = match function_value {
+                    V::Callable(function) => function,
+                    // V::NativeCallable(_) => self.call(function_value, argument_values),
                     /*
                      * We still throw an exception,
                      * but now we’re throwing our own exception type,
                      * one that the interpreter knows to catch and
                      * report gracefully.
                      */
-                    _ => Err(RE::NotCallableValue(paren)),
+                    _ => return Err(RE::NotCallableValue(paren)),
+                };
+
+                if argument_list.len() != function.arity() {
+                    return Err(RE::WrongCallableArity(
+                        paren,
+                        function.arity(),
+                        argument_list.len(),
+                    ));
                 }
+
+                Ok(function.call(self, argument_list))
             }
             Expr::Assign(to_identifier, right) => {
                 let value = self.eval_expr(*right)?;
@@ -1009,21 +1013,6 @@ impl Interpreter {
             Expr::Grouping(expr) => self.eval_expr(*expr),
             Expr::None => unreachable!(),
         }
-    }
-
-    fn callable_arity(&self, function_value: V) -> usize {
-        todo!()
-    }
-
-    /*
-     * We pass in the interpreter in case the class implementing call()
-     * needs it. We also give it the list of evaluated argument values.
-     *
-     * The implementer’s job is then to return the value that the call
-     * expression produces.
-     */
-    fn call(&self, function_value: V, argument_values: Vec<V>) -> RValue {
-        todo!()
     }
 
     fn assign_variable(&mut self, value: V, to_identifier: Tk) -> StdResult<V, RE> {
@@ -1253,6 +1242,7 @@ impl Parser {
             Tk::Default
         };
         // consume(LEFT_PAREN, "Expect '(' after " + kind + " name.");
+        self.consume_token();
         self.report_and_consume(
             Tk::Lpar,
             format!("Expect '(' after {} name.", kind_string).as_str(),
@@ -1278,7 +1268,7 @@ impl Parser {
                         "Can't have more than 255 parameters.",
                     );
                 }
-                self.consume_token();
+                // self.consume_token();
                 let parameter_identifier = if let Tk::Identifier(_) = self.current_token {
                     self.current_token.clone()
                 } else {
@@ -1293,6 +1283,7 @@ impl Parser {
                 if self.current_token != Tk::Comma {
                     break;
                 }
+                self.consume_token();
             }
         };
         // consume(RIGHT_PAREN, "Expect ')' after parameters.");
@@ -1304,12 +1295,18 @@ impl Parser {
          * if the { isn’t found since we know it’s in the context of a function declaration.
          */
         // consume(LEFT_BRACE, "Expect '{' before " + kind + " body.");
-        self.report_and_consume(
-            Tk::RBrace,
-            format!("Expect '{{' before {} body.", kind_string).as_str(),
-        );
         // List<Stmt> body = block();
-        let body = self.block_statement()?;
+        let body = match self.current_token {
+            Tk::LBrace => self.block_statement()?,
+            _ => {
+                report_err(
+                    Tk::LBrace,
+                    self.current_token.clone(),
+                    format!("Expect '{{' before {} body.", kind_string).as_str(),
+                );
+                self.block_statement()?
+            }
+        };
         // return new Stmt.Function(name, parameters, body);
         Ok(Statement::FunctionDeclaration {
             name,
@@ -1943,7 +1940,8 @@ impl Parser {
         // List<Expr> arguments = new ArrayList<>();
         let mut arguments: Vec<Expr> = vec![];
         // if (!check(RIGHT_PAREN)) {
-        if self.current_token != Tk::Lpar {
+        // todo: test end case❗
+        if self.current_token == Tk::Lpar && self.current_token != Tk::End {
             //   do {
             //     arguments.add(expression());
             //   } while (match(COMMA));
@@ -1992,10 +1990,11 @@ impl Parser {
                         "Can't have more than 255 arguments.",
                     );
                 }
-                // Code that will be executed at least once
-                arguments.push(self.expression()?);
-                // Increment
                 self.consume_token();
+                // Code that will be executed at least once
+                let argument_expr = self.expression()?;
+                arguments.push(argument_expr);
+                // Increment
                 // Conditional break to exit the loop
                 if self.current_token != Tk::Comma {
                     break;
@@ -2178,6 +2177,75 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // * ->  fun sayHi(a, b) {
+    // * ->     print a - b;
+    // * ->  }
+    // * ->  sayHi(1, 3);
+    #[test]
+    fn parser_procedure() {
+        let tokens = vec![
+            Tk::Fn,
+            Tk::Identifier("sayHi".into()),
+            Tk::Lpar,
+            Tk::Identifier("a".into()),
+            Tk::Comma,
+            Tk::Identifier("b".into()),
+            Tk::Rpar,
+            Tk::LBrace,
+            Tk::Print,
+            Tk::Identifier("a".into()),
+            Tk::Sub,
+            Tk::Identifier("b".into()),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::Identifier("sayHi".into()),
+            Tk::Lpar,
+            Tk::Num(1),
+            Tk::Comma,
+            Tk::Num(3),
+            Tk::Rpar,
+            Tk::Semi,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+        let mut inter = Interpreter::new(Env::new());
+        inter.eval(statements);
+        // todo: assert stdout
+        let last = inter.results.last().unwrap().clone();
+        println!("{:?}", inter.results);
+        assert_eq!(last, ("print".into(), V::I32(-2)));
+    }
+
+    // * ->  1 - (2 * 3( < 4 == false
+    // * this will try parse a function call due to '('
+    // todo❓: js: Uncaught SyntaxError: Unexpected token '<'
+    #[test]
+    fn parser_works() {
+        let tokens = vec![
+            Tk::Num(1),
+            Tk::Sub,
+            Tk::Lpar,
+            Tk::Num(2),
+            Tk::Mul,
+            Tk::Num(3),
+            //todo: Tk::Lpar,
+            Tk::Rpar,
+            Tk::LT,
+            Tk::Num(4),
+            Tk::EQ,
+            Tk::False,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let expression = parser.expression().unwrap_or_else(|_| Expr::None);
+
+        assert_eq!(
+            expression.to_string(),
+            "(== (< (- 1 (group (* 2 3))) 4) false)".to_string()
+        );
+    }
 
     //* let a = 0;
     //* let temp = 0;
@@ -3008,34 +3076,6 @@ mod tests {
 
         assert_eq!(
             //*  "(- 1 (* (group ❌ algún error!) 3))"
-            expression.to_string(),
-            "(== (< (- 1 (group (* 2 3))) 4) false)".to_string()
-        );
-    }
-
-    // * ->  1 - (2 * 3( < 4 == false
-    // * this will try parse a function call due to '('
-    #[test]
-    fn parser_works() {
-        let tokens = vec![
-            Tk::Num(1),
-            Tk::Sub,
-            Tk::Lpar,
-            Tk::Num(2),
-            Tk::Mul,
-            Tk::Num(3),
-            //todo: Tk::Lpar,
-            Tk::Rpar,
-            Tk::LT,
-            Tk::Num(4),
-            Tk::EQ,
-            Tk::False,
-            Tk::End,
-        ];
-        let mut parser = Parser::new(tokens);
-        let expression = parser.expression().unwrap_or_else(|_| Expr::None);
-
-        assert_eq!(
             expression.to_string(),
             "(== (< (- 1 (group (* 2 3))) 4) false)".to_string()
         );
