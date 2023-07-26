@@ -111,7 +111,8 @@ enum Expr {
 #[derive(Debug, PartialEq, Clone)]
 pub enum V {
     Done,
-    Callable(String),
+    Callable(Box<CallableObject>),
+    NativeCallable(String),
     I32(i32),
     F64(f64),
     String(String),
@@ -125,7 +126,7 @@ trait Arity {
 impl Arity for V {
     fn arity(&self) -> usize {
         match self {
-            V::Callable(fn_name) => match fn_name.as_str() {
+            V::NativeCallable(fn_name) => match fn_name.as_str() {
                 //todo: maybe use an enum to have compile time checks ❓
                 "clock" => 0,
                 _ => panic!(),
@@ -145,7 +146,7 @@ trait FnCallable {
 impl FnCallable for V {
     fn call(&self, _interpreter: Interpreter, _arguments: Vec<V>) -> V {
         match self {
-            V::Callable(fn_name) => match fn_name.as_str() {
+            V::NativeCallable(fn_name) => match fn_name.as_str() {
                 "clock" => {
                     let current_time = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -168,7 +169,8 @@ impl fmt::Display for V {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             V::Done => write!(f, "done!")?,
-            V::Callable(fn_name) => match fn_name.as_str() {
+            V::Callable(function) => write!(f, "#{}", function)?,
+            V::NativeCallable(fn_name) => match fn_name.as_str() {
                 "clock" => write!(f, "#<native-{}>", fn_name)?,
                 _ => write!(f, "#{}", fn_name)?,
             },
@@ -364,7 +366,7 @@ enum Statement {
      * If Lox had syntax for anonymous functions, we wouldn’t need
      * function declaration statements.
      */
-    FnDeclaration {
+    FunctionDeclaration {
         name: Tk,
         parameters: Vec<Tk>,
         body: Vec<Statement>,
@@ -394,7 +396,8 @@ enum Statement {
     Block(Vec<Statement>),
 }
 
-struct CallableObject {
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallableObject {
     //* Stmt.Function
     declaration: Statement,
 }
@@ -403,7 +406,7 @@ impl fmt::Display for CallableObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // todo: look for refactors❗
         match self.declaration.clone() {
-            Statement::FnDeclaration {
+            Statement::FunctionDeclaration {
                 name,
                 parameters: _,
                 body: _,
@@ -423,7 +426,7 @@ impl Arity for CallableObject {
          * It relies on the function reporting its arity to do that.
          */
         match self.declaration.clone() {
-            Statement::FnDeclaration {
+            Statement::FunctionDeclaration {
                 name: _,
                 parameters,
                 body: _,
@@ -475,7 +478,7 @@ impl FnCallable for CallableObject {
     fn call(&self, mut interpreter: Interpreter, arguments: Vec<V>) -> V {
         // todo: look for refactors❗
         let (_, fn_params, fn_body) = match self.declaration.clone() {
-            Statement::FnDeclaration {
+            Statement::FunctionDeclaration {
                 name,
                 parameters,
                 body,
@@ -598,7 +601,7 @@ impl Interpreter {
          * since stuck. Lox is a Lisp-1.
          */
         let mut preludio = Env::new();
-        preludio.define("clock".to_string(), V::Callable("clock".to_string()));
+        preludio.define("clock".to_string(), V::NativeCallable("clock".to_string()));
         Self {
             runtime_error: false,
             global_env: vec![preludio, initial_env],
@@ -640,11 +643,31 @@ impl Interpreter {
 
     fn eval_statement(&mut self, state: Statement) {
         match state {
-            Statement::FnDeclaration {
+            Statement::FunctionDeclaration {
                 name,
                 parameters,
                 body,
-            } => todo!(),
+            } => {
+                /*
+                 * This is similar to how we interpret other literal expressions.
+                 * We take a function syntax node—a compile-time representation
+                 * of the function—and convert it to its runtime representation.
+                 * Here, that’s a CallableObject that wraps the syntax node.
+                 */
+                let function = CallableObject::new(Statement::FunctionDeclaration {
+                    name: name.clone(),
+                    parameters,
+                    body,
+                });
+                /*
+                 * Function declarations are different from other literal nodes
+                 * in that the declaration also binds the resulting object to
+                 * a new variable. So, after creating the LoxFunction,
+                 * we create a new binding in the current environment and
+                 * store a reference to it there.
+                 */
+                self.define_variable(name, V::Callable(Box::new(function)));
+            }
             Statement::While { condition, body } => {
                 //? este el truco, evaluar en cada loop❗
                 while self.eval_expr(condition.clone()) == Ok(V::Bool(true)) {
@@ -822,7 +845,7 @@ impl Interpreter {
                 }
 
                 match function_value {
-                    V::Callable(_) => self.call(function_value, argument_values),
+                    V::NativeCallable(_) => self.call(function_value, argument_values),
                     /*
                      * We still throw an exception,
                      * but now we’re throwing our own exception type,
@@ -1288,7 +1311,7 @@ impl Parser {
         // List<Stmt> body = block();
         let body = self.block_statement()?;
         // return new Stmt.Function(name, parameters, body);
-        Ok(Statement::FnDeclaration {
+        Ok(Statement::FunctionDeclaration {
             name,
             parameters,
             body,
@@ -1878,7 +1901,7 @@ impl Parser {
          * to handle properties on objects.
          */
         loop {
-            self.consume_token();
+            // self.consume_token();
             if self.current_token == Tk::Lpar {
                 /*
                  * The code here doesn’t quite line up with the
