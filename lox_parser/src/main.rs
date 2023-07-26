@@ -110,6 +110,7 @@ enum Expr {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum V {
+    Done,
     Callable(String),
     I32(i32),
     F64(f64),
@@ -137,12 +138,12 @@ impl Arity for V {
         }
     }
 }
-trait FCallable {
+trait FnCallable {
     fn call(&self, interpreter: Interpreter, arguments: Vec<V>) -> V;
 }
 
-impl FCallable for V {
-    fn call(&self, interpreter: Interpreter, arguments: Vec<V>) -> V {
+impl FnCallable for V {
+    fn call(&self, _interpreter: Interpreter, _arguments: Vec<V>) -> V {
         match self {
             V::Callable(fn_name) => match fn_name.as_str() {
                 "clock" => {
@@ -166,6 +167,7 @@ impl FCallable for V {
 impl fmt::Display for V {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            V::Done => write!(f, "done!")?,
             V::Callable(fn_name) => match fn_name.as_str() {
                 "clock" => write!(f, "#<native-{}>", fn_name)?,
                 _ => write!(f, "#{}", fn_name)?,
@@ -362,7 +364,7 @@ enum Statement {
      * If Lox had syntax for anonymous functions, we wouldn’t need
      * function declaration statements.
      */
-    FunDeclaration {
+    FnDeclaration {
         name: Tk,
         parameters: Vec<Tk>,
         body: Vec<Statement>,
@@ -390,6 +392,167 @@ enum Statement {
     },
     //* The curly-braced block statement that defines a local scope
     Block(Vec<Statement>),
+}
+
+struct CallableObject {
+    //* Stmt.Function
+    declaration: Statement,
+}
+
+impl fmt::Display for CallableObject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // todo: look for refactors❗
+        match self.declaration.clone() {
+            Statement::FnDeclaration {
+                name,
+                parameters: _,
+                body: _,
+            } => Ok(write!(f, "<fn {}>", String::from(name))?),
+            _ => unreachable!("only fn declaration!"),
+        }
+    }
+}
+
+impl Arity for CallableObject {
+    fn arity(&self) -> usize {
+        // todo: look for refactors❗
+        /*
+         * Note when we bind the parameters,
+         * we assume the parameter and argument lists have the same length.
+         * This is safe because CallExpr() checks the arity before calling call().
+         * It relies on the function reporting its arity to do that.
+         */
+        match self.declaration.clone() {
+            Statement::FnDeclaration {
+                name: _,
+                parameters,
+                body: _,
+            } => parameters.len(),
+            _ => unreachable!("only fn declaration!"),
+        }
+    }
+}
+
+// impl From<Statement> for Vec<Tk> {
+//     fn from(value: Statement) -> Self {
+//         match value {
+//             Statement::FnDeclaration {
+//                 name: _,
+//                 parameters,
+//                 body: _,
+//             } => parameters,
+//             _ => unreachable!("no parameters!"),
+//         }
+//     }
+// }
+
+// impl From<Statement> for Vec<Statement> {
+//     fn from(value: Statement) -> Self {
+//         match value {
+//             Statement::FnDeclaration {
+//                 name: _,
+//                 parameters: _,
+//                 body,
+//             } => body,
+//             _ => unreachable!("no body!"),
+//         }
+//     }
+// }
+
+impl FnCallable for CallableObject {
+    /*
+     * Mechanically, the code is pretty simple.
+     *
+     * Walk a couple of lists.
+     * Bind some new variables.
+     * Call a method.
+     *
+     * But this is where the crystalline code of the function declaration
+     * becomes a living, breathing invocation.
+     *
+     * Feel free to take a moment to meditate on it if you’re so inclined.
+     */
+    fn call(&self, mut interpreter: Interpreter, arguments: Vec<V>) -> V {
+        // todo: look for refactors❗
+        let (_, fn_params, fn_body) = match self.declaration.clone() {
+            Statement::FnDeclaration {
+                name,
+                parameters,
+                body,
+            } => (name, parameters, body),
+            _ => unreachable!("only fn declaration!"),
+        };
+        /*
+         * This handful of lines of code is one of the most fundamental❗
+         *
+         * At the beginning of the call, it creates a new environment.
+         * Then it walks the parameter and argument lists in lockstep.
+         * For each pair, it creates a new variable with the parameter’s
+         * name and binds it to the argument’s value.
+         */
+        let mut params_env = Env::new();
+        for (index, param) in fn_params.into_iter().enumerate() {
+            let param_name = String::from(param);
+            let argument_val = arguments.get(index).unwrap();
+            /*
+             * Parameters are core to functions, especially the fact that
+             * a function encapsulates its parameters—no other code outside
+             * of the function can see them.
+             * This means each function gets its own environment where it
+             * stores those variables.
+             *
+             * Further, this environment must be created dynamically.
+             * Each function call gets its own environment.
+             * Otherwise, recursion would break.
+             *
+             * If there are multiple calls to the same function
+             * in play at the same time, each needs its own environment,
+             * even though they are all calls to the same function.
+             */
+            //?  fn count(n) {
+            //?     if (n > 1) count(n - 1);
+            //?     print n;
+            //?   }
+            //?   count(3);
+            /*
+             * Imagine we pause the interpreter right at the point where
+             * it’s about to print 1 in the innermost nested call.
+             * The outer calls to print 2 and 3 haven’t printed their values yet,
+             * so there must be environments somewhere in memory that still
+             *
+             * store the fact that n is bound to 3 in one context,
+             * count(3) -> n = 3
+             *
+             * 2 in another,
+             * count(2) -> n = 2
+             *
+             * and 1 in the innermost
+             * count(1) -> n = 1
+             *
+             * That’s why we create a new environment at each call,
+             * not at the function declaration.
+             */
+            params_env.define(param_name, argument_val.clone());
+        }
+        /*
+         * Once the body of the function has finished executing,
+         * executeBlock() discards that function-local environment
+         * and restores the previous one that was active back at the callsite.
+         * Finally, call() returns null, which returns nil to the caller.
+         * (We’ll add return values later.)
+         */
+        interpreter.global_env.push(params_env);
+        interpreter.eval_block(fn_body);
+        interpreter.global_env.pop();
+        V::Done
+    }
+}
+
+impl CallableObject {
+    fn new(declaration: Statement) -> Self {
+        //todo: this should be only for Statement::Function❗
+        Self { declaration }
+    }
 }
 
 #[allow(dead_code)]
@@ -477,7 +640,7 @@ impl Interpreter {
 
     fn eval_statement(&mut self, state: Statement) {
         match state {
-            Statement::FunDeclaration {
+            Statement::FnDeclaration {
                 name,
                 parameters,
                 body,
@@ -1125,7 +1288,7 @@ impl Parser {
         // List<Stmt> body = block();
         let body = self.block_statement()?;
         // return new Stmt.Function(name, parameters, body);
-        Ok(Statement::FunDeclaration {
+        Ok(Statement::FnDeclaration {
             name,
             parameters,
             body,

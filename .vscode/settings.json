@@ -2,6 +2,7 @@
   "cSpell.language": "en,es",
   "cSpell.words": [
     "arity",
+    "callsite",
     "clox",
     "combinators",
     "Earley",
