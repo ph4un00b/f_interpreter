@@ -72,7 +72,7 @@ enum Expr {
      * We’ll use that token’s location when we report a runtime error
      * caused by a function call.
      */
-    FCall {
+    FunctionCall {
         callee: Box<Expr>,
         paren: Tk,
         arguments: Vec<Expr>,
@@ -333,7 +333,7 @@ impl fmt::Display for Expr {
                 write!(f, "@{} = {}", String::from(identifier.clone()), expr)?
             }
             Expr::None => write!(f, "❌ algún error!")?,
-            Expr::FCall {
+            Expr::FunctionCall {
                 callee,
                 paren: _,
                 arguments,
@@ -349,6 +349,24 @@ impl fmt::Display for Expr {
 enum Statement {
     None,
     Expr(Expr),
+    /*
+     * Function declarations, like variables, bind a new name.
+     * That means they are allowed only in places where a declaration is permitted.
+     *
+     * A named function declaration isn’t really a single primitive operation.
+     * It’s syntactic sugar for two distinct steps:
+     *
+     * (1) creating a new function object, and
+     * (2) binding a new variable to it.
+     *
+     * If Lox had syntax for anonymous functions, we wouldn’t need
+     * function declaration statements.
+     */
+    FunDeclaration {
+        name: Tk,
+        parameters: Vec<Tk>,
+        body: Vec<Statement>,
+    },
     /*
      * The node stores the condition and body.
      * Here you can see why it’s nice to have separate base
@@ -366,7 +384,7 @@ enum Statement {
         else_statement: Box<Statement>,
     },
     Print(Expr),
-    Let {
+    LetDeclaration {
         name: Tk,
         initializer: Expr,
     },
@@ -459,6 +477,11 @@ impl Interpreter {
 
     fn eval_statement(&mut self, state: Statement) {
         match state {
+            Statement::FunDeclaration {
+                name,
+                parameters,
+                body,
+            } => todo!(),
             Statement::While { condition, body } => {
                 //? este el truco, evaluar en cada loop❗
                 while self.eval_expr(condition.clone()) == Ok(V::Bool(true)) {
@@ -519,7 +542,7 @@ impl Interpreter {
             Statement::Expr(expr) => {
                 let _ = self.eval_expr(expr);
             }
-            Statement::Let { name, initializer } => {
+            Statement::LetDeclaration { name, initializer } => {
                 /*
                  * If the variable has an initializer, we evaluate it.
                  * If not, we have another choice to make.
@@ -561,7 +584,7 @@ impl Interpreter {
     fn eval_expr(&mut self, expr: Expr) -> RValue {
         println!("{:?}", expr);
         match expr {
-            Expr::FCall {
+            Expr::FunctionCall {
                 callee,
                 paren,
                 arguments,
@@ -906,6 +929,10 @@ pub enum RE {
     WrongCallableArity(Tk, usize, usize),
 }
 
+enum Kind {
+    Function,
+}
+
 use std::result::Result as StdResult;
 
 // use env_01_recursive::Env;
@@ -955,12 +982,17 @@ impl Parser {
      * GRAMAR:
      *
      * program        → declaration* EOF ;
-     * declaration    → varDecl | statement ;
+     *
+     * declaration    → function Declaration
+     *                  | variable Declaration
+     *                  | statement ;
+     *
      * statement      → exprStmt
      *                  | ifStmt
      *                  | printStmt
      *                  | whileStmt
      *                  | block ;
+     *
      * exprStmt       → expression ";"
      * ifStmt         → "if" "(" expression ")" statement ( "else" statement )? ;
      * printStmt      → "print" expression ";"
@@ -977,7 +1009,7 @@ impl Parser {
         let mut result = vec![];
 
         while self.current_token != Tk::End {
-            let statement = self.variable_or_statement().unwrap_or_else(|err| {
+            let statement = self.declaration_or_statement().unwrap_or_else(|err| {
                 match err {
                     ParserAy::BadExpression(bad_token) => {
                         println!(
@@ -995,26 +1027,119 @@ impl Parser {
         result
     }
 
-    //* let-Decl → "let" IDENTIFIER ( "=" expression )? ";" ;
-    fn variable_or_statement(&mut self) -> RStatement {
-        let result = if self.current_token == Tk::Var {
-            self.variable_statement()?
-        } else {
-            self.statement()?
+    //* declaration    → function Declaration
+    //*                  | variable Declaration
+    //*                  | statement ;
+    fn declaration_or_statement(&mut self) -> RStatement {
+        let result = match self.current_token {
+            Tk::Fn => self.function_declaration(Kind::Function)?,
+            Tk::Var => self.variable_declaration()?,
+            _ => self.statement()?,
         };
 
         Ok(result)
     }
+    // * funDecl        → "fun" function ;
+    //? It’s like the earlier arguments rule,
+    //? except that each parameter is an identifier, not an expression.
+    // * function       → IDENTIFIER "(" parameters? ")" block ;
+    // * parameters     → IDENTIFIER ( "," IDENTIFIER )* ;
+    /*
+     * The main funDecl rule uses a separate helper rule function.
+     * A function declaration statement is the fun keyword followed
+     * by the actual function-y stuff.
+     *
+     * When we get to classes, we’ll reuse that function rule for declaring methods.
+     * Those look similar to function declarations, but aren’t preceded by fun.
+     */
+    fn function_declaration(&mut self, kind: Kind) -> RStatement {
+        let kind_string = match kind {
+            Kind::Function => "function",
+        };
+        self.consume_token();
+        let name = if let Tk::Identifier(_) = self.current_token {
+            self.current_token.clone()
+        } else {
+            self.report_and_consume(
+                Tk::Lpar,
+                format!("Expected {} name!.", kind_string).as_str(),
+            );
+            Tk::Default
+        };
+        // consume(LEFT_PAREN, "Expect '(' after " + kind + " name.");
+        self.report_and_consume(
+            Tk::Lpar,
+            format!("Expect '(' after {} name.", kind_string).as_str(),
+        );
+        // List<Token> parameters = new ArrayList<>();
+        let mut parameters: Vec<Tk> = vec![];
+        // if (!check(RIGHT_PAREN)) {
+        if self.current_token != Tk::Rpar {
+            loop {
+                /*
+                 * This is like the code for handling arguments in a call,
+                 * except not split out into a helper method.
+                 * The outer if statement handles the zero parameter case,
+                 * and the inner while loop parses parameters as long as we
+                 * find commas to separate them.
+                 * The result is the list of tokens for each parameter’s name.
+                 */
+                if parameters.len() >= 255 {
+                    // todo: test err❗"
+                    report_err(
+                        Tk::Default,
+                        self.current_token.clone(),
+                        "Can't have more than 255 parameters.",
+                    );
+                }
+                self.consume_token();
+                let parameter_identifier = if let Tk::Identifier(_) = self.current_token {
+                    self.current_token.clone()
+                } else {
+                    self.report_and_consume(
+                        Tk::Identifier("parameter".to_string()),
+                        "Expect parameter name",
+                    );
+                    Tk::Default
+                };
+                parameters.push(parameter_identifier);
+                self.consume_token();
+                if self.current_token != Tk::Comma {
+                    break;
+                }
+            }
+        };
+        // consume(RIGHT_PAREN, "Expect ')' after parameters.");
+        self.report_and_consume(Tk::Rpar, "Expect ')' after parameters.");
+        /*
+         * Note that we consume the { at the beginning of the body here before calling block().
+         * That’s because block() assumes the brace token has already been matched.
+         * Consuming it here lets us report a more precise error message
+         * if the { isn’t found since we know it’s in the context of a function declaration.
+         */
+        // consume(LEFT_BRACE, "Expect '{' before " + kind + " body.");
+        self.report_and_consume(
+            Tk::RBrace,
+            format!("Expect '{{' before {} body.", kind_string).as_str(),
+        );
+        // List<Stmt> body = block();
+        let body = self.block_statement()?;
+        // return new Stmt.Function(name, parameters, body);
+        Ok(Statement::FunDeclaration {
+            name,
+            parameters,
+            body,
+        })
+    }
 
-    fn variable_statement(&mut self) -> RStatement {
+    //* "let" IDENTIFIER ( "=" expression )? ";" ;
+    fn variable_declaration(&mut self) -> RStatement {
         /*
          * As always, the recursive descent code follows
          * the grammar rule. The parser has already
          * matched the var token, so next it requires
          * and consumes an identifier token for the
          * variable name.
-         *
-         * "let" IDENTIFIER ( "=" expression )? ";" ;
          */
         self.consume_token();
         let result_token = if let Tk::Identifier(_) = self.current_token {
@@ -1048,7 +1173,7 @@ impl Parser {
          */
         self.report_and_consume(Tk::Semi, "👀 expected ';' after expression");
 
-        Ok(Statement::Let {
+        Ok(Statement::LetDeclaration {
             name: result_token,
             initializer,
         })
@@ -1126,7 +1251,7 @@ impl Parser {
             //? If the token following the ( is a semicolon then the initializer has been omitted.
             Tk::Semi => Statement::None,
             //? Otherwise, we check for a var keyword to see if it’s a variable declaration.
-            Tk::Var => self.variable_statement()?,
+            Tk::Var => self.variable_declaration()?,
             //? If neither of those matched, it must be an expression.
             //? We parse that and wrap it in an expression statement
             //? so that the initializer is always of type Stmt
@@ -1363,7 +1488,7 @@ impl Parser {
          * If the user forgets a closing }, the parser needs to not get stuck
          */
         while self.current_token != Tk::RBrace && self.current_token != Tk::End {
-            result.push(self.variable_or_statement()?);
+            result.push(self.declaration_or_statement()?);
         }
 
         self.report_and_consume(Tk::RBrace, "Expect '}' after block 👀❗");
@@ -1703,7 +1828,7 @@ impl Parser {
         //               "Expect ')' after arguments.");
         self.report_and_consume(Tk::Rpar, "Expect ')' after arguments.");
         // return new Expr.Call(callee, paren, arguments);
-        Ok(Expr::FCall {
+        Ok(Expr::FunctionCall {
             callee: Box::new(callee),
             paren: self.prev_token.clone(),
             arguments,
@@ -2408,7 +2533,7 @@ mod tests {
         assert_eq!(
             expression,
             Statement::Block(vec![
-                Statement::Let {
+                Statement::LetDeclaration {
                     name: Tk::Identifier("a".into()),
                     initializer: Expr::Literal(V::I32(10))
                 },
@@ -2549,12 +2674,12 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let expression = parser
-            .variable_or_statement()
+            .declaration_or_statement()
             .unwrap_or_else(|_| Statement::None);
 
         assert_eq!(
             expression,
-            Statement::Let {
+            Statement::LetDeclaration {
                 name: Tk::Identifier("jamon".into()),
                 initializer: Expr::Literal(V::I32(100))
             }
@@ -2570,12 +2695,12 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let expression = parser
-            .variable_or_statement()
+            .declaration_or_statement()
             .unwrap_or_else(|_| Statement::None);
 
         assert_eq!(
             expression,
-            Statement::Let {
+            Statement::LetDeclaration {
                 name: Tk::Identifier("jamon".into()),
                 initializer: Expr::Let(Tk::Identifier("lol".into()))
             }
