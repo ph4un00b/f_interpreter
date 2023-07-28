@@ -632,7 +632,18 @@ impl Interpreter {
 
     fn eval(&mut self, statements: Vec<Statement>) {
         for state in statements {
-            let _ = self.eval_statement(state);
+            let value = self.eval_statement(state);
+            match value {
+                Ok(_val) => (),
+                Err(err) => match err {
+                    RE::MustBeNumber(_) => todo!(),
+                    RE::NotNumber(_, _, _) => todo!(),
+                    RE::MustBeBoolean(_) => todo!(),
+                    RE::UndefinedVariable(v) => todo!("undefined variable {}", v),
+                    RE::NotCallableValue(_) => todo!(),
+                    RE::WrongCallableArity(_, _, _) => todo!(),
+                },
+            }
         }
     }
 
@@ -749,22 +760,10 @@ impl Interpreter {
              * though, you may want to consider it.
              */
             Statement::Print(expr) => {
-                let value = self.eval_expr(expr);
-                match value {
-                    Ok(val) => {
-                        self.results.push(("print".into(), val.clone()));
-                        println!("🎈 {val}");
-                        Ok(V::Done)
-                    }
-                    Err(err) => match err {
-                        RE::MustBeNumber(_) => todo!(),
-                        RE::NotNumber(_, _, _) => todo!(),
-                        RE::MustBeBoolean(_) => todo!(),
-                        RE::UndefinedVariable(_) => todo!(),
-                        RE::NotCallableValue(_) => todo!(),
-                        RE::WrongCallableArity(_, _, _) => todo!(),
-                    },
-                }
+                let value = self.eval_expr(expr)?;
+                self.results.push(("print".into(), value.clone()));
+                println!("🎈 {value}");
+                Ok(V::Done)
             }
             Statement::Expr(expr) => self.eval_expr(expr),
             Statement::LetDeclaration { name, initializer } => {
@@ -892,7 +891,7 @@ impl Interpreter {
                         argument_list.len(),
                     ));
                 }
-
+                println!("\n WiLL CALL {}", function);
                 function.call(self, argument_list)
             }
             Expr::Assign(to_identifier, right) => {
@@ -2254,7 +2253,90 @@ fn main() {
 mod tests {
     use super::*;
 
+    // #[test]
+    fn test_closure() {
+        let tokens = vec![
+            //? fun makeCounter() {
+            //?     var i = 0;
+            //?     fun count() {
+            //?       i = i + 1;
+            //?       print i;
+            //?     }
+            //?     return count;
+            //?   }
+            //?   var counter = makeCounter();
+            //?   counter(); // "1".
+            //?   counter(); // "2".
+            Tk::Fn,
+            Tk::Identifier("makeCounter".into()),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::LBrace,
+            //? var i = 0;
+            Tk::Var,
+            Tk::Identifier("i".into()),
+            Tk::Assign,
+            Tk::Num(0),
+            Tk::Semi,
+            //?     fun count() {
+            //?       i = i + 1;
+            //?       print i;
+            //?     }
+            Tk::Fn,
+            Tk::Identifier("count".into()),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::LBrace,
+            Tk::Identifier("i".into()),
+            Tk::Assign,
+            Tk::Identifier("i".into()),
+            Tk::Sub,
+            Tk::Num(1),
+            Tk::Semi,
+            Tk::Print,
+            Tk::Identifier("i".into()),
+            Tk::Semi,
+            Tk::RBrace,
+            //?     return count;
+            //?   }
+            Tk::Return,
+            Tk::Identifier("count".into()),
+            Tk::Semi,
+            Tk::RBrace,
+            //?   var counter = makeCounter();
+            Tk::Var,
+            Tk::Identifier("counter".into()),
+            Tk::Assign,
+            Tk::Identifier("makeCounter".into()),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Semi,
+            //?   counter(); // "1".
+            Tk::Identifier("counter".into()),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Semi,
+            // //?   counter(); // "2".
+            // Tk::Identifier("counter".into()),
+            // Tk::Lpar,
+            // Tk::Rpar,
+            // Tk::Semi,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+
+        let environment = Env::new(EnvKind::Global);
+        let mut inter = Interpreter::new(environment);
+        inter.eval(statements);
+
+        // todo: assert stdout
+        let last = inter.results.last();
+        assert_eq!(last, Some(&("print".into(), V::I32(3))));
+    }
+
     #[test]
+    #[should_panic = "not yet implemented: undefined variable makeCounter"]
     fn test_call_with_arguments() {
         let tokens = vec![
             //?   var counter = makeCounter(3);
@@ -2274,13 +2356,10 @@ mod tests {
         let environment = Env::new(EnvKind::Global);
         let mut inter = Interpreter::new(environment);
         inter.eval(statements);
-
-        // todo: assert stdout
-        let last = inter.results.last();
-        assert_eq!(last, None);
     }
 
     #[test]
+    #[should_panic = "not yet implemented: undefined variable makeCounter"]
     fn test_call_with_no_arguments() {
         let tokens = vec![
             //?   var counter = makeCounter();
@@ -2299,10 +2378,6 @@ mod tests {
         let environment = Env::new(EnvKind::Global);
         let mut inter = Interpreter::new(environment);
         inter.eval(statements);
-
-        // todo: assert stdout
-        let last = inter.results.last();
-        assert_eq!(last, None);
     }
 
     // * ->  fun fib(n) {
