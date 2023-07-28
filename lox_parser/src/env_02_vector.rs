@@ -4,13 +4,23 @@ use std::collections::HashMap;
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct Env {
+    kind: EnvKind,
     values: HashMap<String, V>,
+}
+
+#[derive(Clone, Debug)]
+pub enum EnvKind {
+    Prelude,
+    Global,
+    Block,
+    Call,
 }
 
 #[allow(dead_code)]
 impl Env {
-    pub fn new() -> Self {
+    pub fn new(kind: EnvKind) -> Self {
         Self {
+            kind,
             values: HashMap::new(),
         }
     }
@@ -104,7 +114,7 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let mut scope = Env::new();
+        let mut scope = Env::new(EnvKind::Global);
         scope.define("a".into(), V::I32(1));
         scope.define("b".into(), V::I32(10));
         scope.define("c".into(), V::I32(100));
@@ -119,7 +129,7 @@ mod tests {
 
     #[test]
     fn it_errors() {
-        let mut scope = Env::new();
+        let mut scope = Env::new(EnvKind::Global);
         scope.define("a".into(), V::I32(1));
         scope.define("b".into(), V::I32(10));
         scope.define("c".into(), V::I32(100));
@@ -129,7 +139,7 @@ mod tests {
 
     #[test]
     fn it_assigns() {
-        let mut scope = Env::new();
+        let mut scope = Env::new(EnvKind::Global);
         scope.define("a".into(), V::I32(1));
         let a = scope.assign(Tk::Identifier("a".into()), V::I32(22));
         assert_eq!(a, Some(V::I32(22)));
@@ -137,7 +147,7 @@ mod tests {
 
     #[test]
     fn it_errors_assignment() {
-        let mut scope = Env::new();
+        let mut scope = Env::new(EnvKind::Global);
         scope.define("a".into(), V::I32(1));
         let a = scope.assign(Tk::Identifier("b".into()), V::I32(22));
         assert_eq!(a, None);

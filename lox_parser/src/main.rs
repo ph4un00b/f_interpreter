@@ -111,6 +111,7 @@ enum Expr {
 #[derive(Debug, PartialEq, Clone)]
 pub enum V {
     Done,
+    Return(Box<V>),
     Callable(Box<FunctionObject>),
     NativeCallable(String),
     I32(i32),
@@ -140,11 +141,11 @@ impl Arity for V {
     }
 }
 trait FnCallable {
-    fn call(&self, interpreter: &mut Interpreter, arguments: Vec<V>) -> V;
+    fn call(&self, interpreter: &mut Interpreter, arguments: Vec<V>) -> RValue;
 }
 
 impl FnCallable for V {
-    fn call(&self, _interpreter: &mut Interpreter, _arguments: Vec<V>) -> V {
+    fn call(&self, _interpreter: &mut Interpreter, _arguments: Vec<V>) -> RValue {
         match self {
             V::NativeCallable(fn_name) => match fn_name.as_str() {
                 "clock" => {
@@ -152,7 +153,7 @@ impl FnCallable for V {
                         .duration_since(std::time::UNIX_EPOCH)
                         .expect("Failed to get current time");
 
-                    V::F64(current_time.as_secs() as f64)
+                    Ok(V::F64(current_time.as_secs() as f64))
                 }
                 _ => panic!(),
             },
@@ -169,7 +170,8 @@ impl fmt::Display for V {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             V::Done => write!(f, "done!")?,
-            V::Callable(function) => write!(f, "#{}", function)?,
+            V::Return(val) => write!(f, "ret {:?}", val)?,
+            V::Callable(function) => write!(f, "#{:?}", function)?,
             V::NativeCallable(fn_name) => match fn_name.as_str() {
                 "clock" => write!(f, "#<native-{}>", fn_name)?,
                 _ => write!(f, "#{}", fn_name)?,
@@ -351,8 +353,23 @@ impl fmt::Display for Expr {
 // todo: can it be automated❓👀
 #[derive(Debug, PartialEq, Clone)]
 enum Statement {
-    None,
+    None(String),
     Expr(Expr),
+    /*
+     * This means every Lox function must return something,
+     * even if it contains no return statements at all.
+     *
+     * We use nil for this, which is why LoxFunction’s implementation of call()
+     * returns null at the end.
+     * In that same vein, if you omit the value in a return statement,
+     * we simply treat it as equivalent to:
+     *
+     * return nil;
+     */
+    Return {
+        keyword: Tk,
+        value: Expr,
+    },
     /*
      * Function declarations, like variables, bind a new name.
      * That means they are allowed only in places where a declaration is permitted.
@@ -475,7 +492,7 @@ impl FnCallable for FunctionObject {
      *
      * Feel free to take a moment to meditate on it if you’re so inclined.
      */
-    fn call(&self, interpreter: &mut Interpreter, arguments: Vec<V>) -> V {
+    fn call(&self, interpreter: &mut Interpreter, arguments: Vec<V>) -> RValue {
         // todo: look for refactors❗
         let (_, fn_params, fn_body) = match self.declaration.clone() {
             Statement::FunctionDeclaration {
@@ -493,7 +510,7 @@ impl FnCallable for FunctionObject {
          * For each pair, it creates a new variable with the parameter’s
          * name and binds it to the argument’s value.
          */
-        let mut params_env = Env::new();
+        let mut params_env = Env::new(EnvKind::Call);
         for (index, param) in fn_params.into_iter().enumerate() {
             let param_name = String::from(param);
             let argument_val = arguments.get(index).unwrap();
@@ -545,9 +562,13 @@ impl FnCallable for FunctionObject {
          * (We’ll add return values later.)
          */
         interpreter.global_env.push(params_env);
-        interpreter.eval_block(fn_body);
+        let returned = interpreter.eval_block(fn_body)?;
         interpreter.global_env.pop();
-        V::Done
+
+        match returned {
+            V::Return(value) => Ok(*value),
+            _ => Ok(V::Done),
+        }
     }
 }
 
@@ -600,7 +621,7 @@ impl Interpreter {
          * Despite being totally opaque, those names have
          * since stuck. Lox is a Lisp-1.
          */
-        let mut preludio = Env::new();
+        let mut preludio = Env::new(EnvKind::Prelude);
         preludio.define("clock".to_string(), V::NativeCallable("clock".to_string()));
         Self {
             runtime_error: false,
@@ -611,11 +632,11 @@ impl Interpreter {
 
     fn eval(&mut self, statements: Vec<Statement>) {
         for state in statements {
-            self.eval_statement(state);
+            let _ = self.eval_statement(state);
         }
     }
 
-    fn eval_block(&mut self, statements: Vec<Statement>) {
+    fn eval_block(&mut self, statements: Vec<Statement>) -> RValue {
         /*
          * Another classic approach is to explicitly pass the environment
          * as a parameter to each visit method. To “change” the environment,
@@ -626,10 +647,14 @@ impl Interpreter {
          */
         // todo: do it in a recursive way❗
         // todo:  let previous_env = std::mem::replace(&mut self.global_env, local_env);
-        self.global_env.push(Env::new());
-        println!(">>> new block {:?}", self.global_env);
+        self.global_env.push(Env::new(EnvKind::Block));
+        // println!(">>> new block {:?}", self.global_env);
         for state in statements {
-            self.eval_statement(state);
+            let returned = self.eval_statement(state)?;
+            if let V::Return(value) = returned {
+                self.global_env.pop();
+                return Ok(V::Return(value));
+            }
         }
         /*
          * To execute code within a given scope, this method updates the
@@ -637,12 +662,19 @@ impl Interpreter {
          * and then restores the previous value.
          */
         self.global_env.pop();
-        println!("<<< block out {:?}", self.global_env);
+        // println!("<<< block out {:?}", self.global_env);
+        Ok(V::Done)
         // todo: it gets restored even if an exception is thrown.
     }
 
-    fn eval_statement(&mut self, state: Statement) {
+    fn eval_statement(&mut self, state: Statement) -> RValue {
+        // println!("{:?}", state);
         match state {
+            Statement::Return { keyword: _, value } => {
+                let evaluated_value = self.eval_expr(value)?;
+                self.results.push(("ret".into(), evaluated_value.clone()));
+                Ok(V::Return(Box::new(evaluated_value)))
+            }
             Statement::FunctionDeclaration {
                 name,
                 parameters,
@@ -667,33 +699,41 @@ impl Interpreter {
                  * store a reference to it there.
                  */
                 self.define_variable(name, V::Callable(Box::new(function)));
+                Ok(V::Done)
             }
             Statement::While { condition, body } => {
                 //? este el truco, evaluar en cada loop❗
                 while self.eval_expr(condition.clone()) == Ok(V::Bool(true)) {
                     // todo: improve allocations❓👀
-                    self.eval_statement(*body.clone());
+                    self.eval_statement(*body.clone())?;
                 }
+                Ok(V::Done)
             }
             Statement::Cond {
                 condition,
                 then_statement,
                 else_statement,
             } => {
-                let maybe_condition = self.eval_expr(condition);
-                let Ok(evaluated_condition) = maybe_condition else {
-                    todo!()
-                };
+                let evaluated_condition = self.eval_expr(condition)?;
+                println!("{}", evaluated_condition);
                 /*
                  * Most other syntax trees always evaluate their subtrees.
                  * Here, we may not evaluate the then or else statement.
                  * If either of those has a side effect,
                  * the choice not to evaluate it becomes user visible.
                  */
-                match evaluated_condition {
-                    V::Bool(true) => self.eval_statement(*then_statement),
-                    V::Bool(false) => self.eval_statement(*else_statement),
-                    _ => unreachable!(),
+                if let Statement::None(_) = *else_statement {
+                    match evaluated_condition {
+                        V::Bool(true) => self.eval_statement(*then_statement),
+                        V::Bool(false) => Ok(V::Done),
+                        _ => unreachable!(),
+                    }
+                } else {
+                    match evaluated_condition {
+                        V::Bool(true) => self.eval_statement(*then_statement),
+                        V::Bool(false) => self.eval_statement(*else_statement),
+                        _ => unreachable!(),
+                    }
                 }
             }
             Statement::Block(statements) => self.eval_block(statements),
@@ -713,7 +753,8 @@ impl Interpreter {
                 match value {
                     Ok(val) => {
                         self.results.push(("print".into(), val.clone()));
-                        println!("🎈 {val}")
+                        println!("🎈 {val}");
+                        Ok(V::Done)
                     }
                     Err(err) => match err {
                         RE::MustBeNumber(_) => todo!(),
@@ -725,9 +766,7 @@ impl Interpreter {
                     },
                 }
             }
-            Statement::Expr(expr) => {
-                let _ = self.eval_expr(expr);
-            }
+            Statement::Expr(expr) => self.eval_expr(expr),
             Statement::LetDeclaration { name, initializer } => {
                 /*
                  * If the variable has an initializer, we evaluate it.
@@ -737,15 +776,11 @@ impl Interpreter {
                  * Most languages don’t, though, so it feels
                  * a little harsh to do so in Lox.
                  */
-                let maybe_val = self.eval_expr(initializer);
-                if let Ok(val) = maybe_val {
-                    self.define_variable(name, val);
-                } else {
-                    // todo: err❓
-                    todo!()
-                }
+                let val = self.eval_expr(initializer)?;
+                self.define_variable(name, val);
+                Ok(V::Done)
             }
-            Statement::None => unreachable!(),
+            Statement::None(msg) => unreachable!("{}", msg),
         }
     }
 
@@ -758,7 +793,7 @@ impl Interpreter {
         * print a;
         * var a = "too late!";
         */
-        self.results.push(("let".into(), val.clone()));
+        // self.results.push(("let".into(), val.clone()));
         let name = String::from(name);
         if let Some(local_values) = self.global_env.last_mut() {
             println!("{:#?}", local_values);
@@ -768,7 +803,7 @@ impl Interpreter {
     }
 
     fn eval_expr(&mut self, expr: Expr) -> RValue {
-        println!("{:?}", expr);
+        // println!("{:?}", expr);
         match expr {
             Expr::FunctionCall {
                 callee,
@@ -798,7 +833,8 @@ impl Interpreter {
                      * surprised if arguments aren’t evaluated in the order
                      * they expect.
                      */
-                    argument_list.push(self.eval_expr(argument_expr)?);
+                    let fn_arg = self.eval_expr(argument_expr)?;
+                    argument_list.push(fn_arg);
                 }
 
                 /*
@@ -835,7 +871,7 @@ impl Interpreter {
                  * Python is stricter. It raises a runtime error if the
                  * argument list is too short or too long.
                  */
-                println!("{:?}", function_value);
+                println!("\nFN ARG {:?}", argument_list);
                 // todo: test err❗
                 let function = match function_value {
                     V::Callable(function) => function,
@@ -857,7 +893,7 @@ impl Interpreter {
                     ));
                 }
 
-                Ok(function.call(self, argument_list))
+                function.call(self, argument_list)
             }
             Expr::Assign(to_identifier, right) => {
                 let value = self.eval_expr(*right)?;
@@ -871,24 +907,19 @@ impl Interpreter {
                 self.assign_variable(value, to_identifier)
             }
             Expr::Let(identifier) => {
-                if let Some(local_values) = self.global_env.last_mut() {
-                    println!("{:?}", local_values);
-                    if let Some(value) = local_values.fetch(identifier.clone()) {
-                        return Ok(value);
-                    }
-                    let mut iter = self.global_env.iter_mut();
-                    loop {
-                        match iter.next() {
-                            Some(outer_env) => {
-                                if let Some(value) = outer_env.fetch(identifier.clone()) {
-                                    return Ok(value);
-                                }
+                // println!("\n>>> searching: {:?}", self.global_env);
+                // todo: verify this refactor on assignment
+                let mut iter = self.global_env.iter_mut();
+                loop {
+                    match iter.next_back() {
+                        Some(outer_env) => {
+                            println!("{:?} for {:?}", outer_env, identifier);
+                            if let Some(value) = outer_env.fetch(identifier.clone()) {
+                                return Ok(value);
                             }
-                            None => return Err(RE::UndefinedVariable(identifier.into())),
                         }
+                        None => return Err(RE::UndefinedVariable(identifier.into())),
                     }
-                } else {
-                    unreachable!("not initial global env!");
                 }
             }
             Expr::Unary { operator, right } => {
@@ -1112,6 +1143,8 @@ use std::result::Result as StdResult;
 
 // use env_01_recursive::Env;
 use env_02_vector::Env;
+
+use crate::env_02_vector::EnvKind;
 type Result<T> = StdResult<T, ParserAy>;
 type RStatement = StdResult<Statement, ParserAy>;
 type RValue = StdResult<V, RE>;
@@ -1194,7 +1227,7 @@ impl Parser {
                     }
                 };
 
-                Statement::None
+                Statement::None("#parse".into())
             });
             result.push(statement);
         }
@@ -1366,6 +1399,7 @@ impl Parser {
      * statement      → exprStmt
      *                  | forStmt
      *                  | ifStmt
+     *                  | returnStmt
      *                  | printStmt
      *                  | whileStmt
      *                  | block ;
@@ -1380,6 +1414,7 @@ impl Parser {
          * subsequent phases are skipped.
          */
         let stt = match self.current_token {
+            Tk::Return => self.return_statement()?,
             Tk::For => self.for_statement()?,
             Tk::While => self.while_statement()?,
             Tk::If => self.conditional_statement()?,
@@ -1398,6 +1433,46 @@ impl Parser {
         };
 
         Ok(stt)
+    }
+
+    /*
+     * The return value is optional to support exiting early from a
+     * function that doesn’t return a useful value.
+     *
+     * In statically typed languages, “void” functions don’t return a
+     * value and non-void ones do. Since Lox is dynamically typed,
+     * there are no true void functions.
+     *
+     * The compiler has no way of preventing you from taking the
+     * result value of a call to a function that doesn’t contain a return statement.
+     */
+    //* returnStmt     → "return" expression? ";" ;
+    fn return_statement(&mut self) -> RStatement {
+        self.consume_token();
+        // Token keyword = previous();
+        let keyword = self.prev_token.clone();
+        // Expr value = null;
+        // if (!check(SEMICOLON)) {
+        //   value = expression();
+        // }
+        let value = if self.current_token != Tk::Semi || self.current_token != Tk::End {
+            /*
+             * After snagging the previously consumed return keyword,
+             * we look for a value expression.
+             * Since many different tokens can potentially start an expression,
+             * it’s hard to tell if a return value is present.
+             * Instead, we check if it’s absent.
+             * Since a semicolon can’t begin an expression, if the next token is that,
+             * we know there must not be a value.
+             */
+            self.expression()?
+        } else {
+            Expr::None
+        };
+        // consume(SEMICOLON, "Expect ';' after return value.");
+        self.report_and_consume(Tk::Semi, "Expect ';' after return value.");
+        // return new Stmt.Return(keyword, value);
+        Ok(Statement::Return { keyword, value })
     }
 
     /*
@@ -1432,7 +1507,7 @@ impl Parser {
         // }
         let initializer = match self.current_token {
             //? If the token following the ( is a semicolon then the initializer has been omitted.
-            Tk::Semi => Statement::None,
+            Tk::Semi => Statement::None("omitted initializer in 'for'".into()),
             //? Otherwise, we check for a var keyword to see if it’s a variable declaration.
             Tk::Var => self.variable_declaration()?,
             //? If neither of those matched, it must be an expression.
@@ -1487,7 +1562,7 @@ impl Parser {
         //             body,
         //             new Stmt.Expression(increment)));
         let body = if let Expr::None = increment {
-            Statement::None
+            Statement::None("no expr in 'for'".into())
         } else {
             Statement::Block(vec![body, Statement::Expr(increment)])
         };
@@ -1519,8 +1594,8 @@ impl Parser {
         //  if (initializer != null) {
         //     body = new Stmt.Block(Arrays.asList(initializer, body));
         //   }
-        let body = if let Statement::None = initializer {
-            Statement::None
+        let body = if let Statement::None(_msg) = initializer {
+            Statement::None("no initializer in 'for'".into())
         } else {
             /*
              * Finally, if there is an initializer, it runs once before the entire loop.
@@ -1566,10 +1641,10 @@ impl Parser {
      * that ends in a semicolon.
      */
     fn conditional_statement(&mut self) -> RStatement {
+        self.consume_token();
         // consume(LEFT_PAREN, "Expect '(' after 'if'.");
         self.report_and_consume(Tk::Lpar, "Expect '(' after 'if'");
         // Expr condition = expression();
-        self.consume_token();
         let condition = self.expression()?;
         /*
          * Other languages like Lua and some BASICs use a keyword
@@ -1612,7 +1687,7 @@ impl Parser {
             self.consume_token();
             Box::new(self.statement()?)
         } else {
-            Box::new(Statement::None)
+            Box::new(Statement::None("no else in 'if'".into()))
         };
         /*
          * Instead, most languages and parsers avoid the problem
@@ -2178,6 +2253,227 @@ fn main() {
 mod tests {
     use super::*;
 
+    // * ->  fun fib(n) {
+    // * ->     if (n < 1 or n == 1) return n;
+    // * ->     return fib(n - 2) - fib(n - 1);
+    // * ->  }
+    // * ->  for (var i = 10; 0 < i; i = i - 1) {
+    // * ->     print fib(i);
+    // * ->  }
+    #[test]
+    fn test_recursion() {
+        let tokens = vec![
+            Tk::Fn,
+            Tk::Identifier("fibo".into()),
+            Tk::Lpar,
+            Tk::Identifier("n".into()),
+            Tk::Rpar,
+            Tk::LBrace,
+            // * ->     if (n < 1 or n == 1) return n;
+            Tk::If,
+            Tk::Lpar,
+            Tk::Identifier("n".into()),
+            Tk::LT,
+            Tk::Num(1),
+            Tk::Or,
+            Tk::Identifier("n".into()),
+            Tk::EQ,
+            Tk::Num(1),
+            Tk::Rpar,
+            Tk::Return,
+            Tk::Identifier("n".into()),
+            Tk::Semi,
+            // * ->     return fib(n - 2) - fib(n - 1);
+            Tk::Return,
+            Tk::Identifier("fibo".into()),
+            Tk::Lpar,
+            Tk::Identifier("n".into()),
+            Tk::Sub,
+            Tk::Num(2),
+            Tk::Rpar,
+            Tk::Sub,
+            Tk::Identifier("fibo".into()),
+            Tk::Lpar,
+            Tk::Identifier("n".into()),
+            Tk::Sub,
+            Tk::Num(1),
+            Tk::Rpar,
+            Tk::Semi,
+            Tk::RBrace,
+            // * ->  for (let i = 11; 9 < i; i = i - 1) {
+            Tk::For,
+            Tk::Lpar,
+            Tk::Var,
+            Tk::Identifier("i".into()),
+            Tk::Assign,
+            Tk::Num(11),
+            Tk::Semi,
+            Tk::Num(9),
+            Tk::LT,
+            Tk::Identifier("i".into()),
+            Tk::Semi,
+            Tk::Identifier("i".into()),
+            Tk::Assign,
+            Tk::Identifier("i".into()),
+            Tk::Sub,
+            Tk::Num(1),
+            Tk::Rpar,
+            Tk::LBrace,
+            // * ->     print fib(i);
+            Tk::Print,
+            Tk::Identifier("fibo".into()),
+            Tk::Lpar,
+            Tk::Identifier("i".into()),
+            Tk::Rpar,
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::End,
+            // * ->     print fib(1);
+            // Tk::Print,
+            // Tk::Identifier("fibo".into()),
+            // Tk::Lpar,
+            // Tk::Num(10),
+            // Tk::Rpar,
+            // Tk::Semi,
+            // Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+
+        let mut inter = Interpreter::new(Env::new(EnvKind::Global));
+        inter.eval(statements);
+
+        // todo: assert stdout
+        let last = inter.results.last().unwrap().clone();
+        assert_eq!(last, ("print".into(), V::I32(-55)));
+    }
+
+    #[test]
+    fn test_count() {
+        let tokens = vec![
+            //?  function count(n) {
+            //?     if (1 < n) count(n - 1);
+            //?     print n;
+            //?   }
+            //?   count(3);
+            Tk::Fn,
+            Tk::Identifier("count".into()),
+            Tk::Lpar,
+            Tk::Identifier("n".into()),
+            Tk::Rpar,
+            Tk::LBrace,
+            // * -> if (1 < n) count(n - 1);
+            Tk::If,
+            Tk::Lpar,
+            Tk::Num(1),
+            Tk::LT,
+            Tk::Identifier("n".into()),
+            Tk::Rpar,
+            Tk::Identifier("count".into()),
+            Tk::Lpar,
+            Tk::Identifier("n".into()),
+            Tk::Sub,
+            Tk::Num(1),
+            Tk::Rpar,
+            Tk::Semi,
+            // * ->   print n;
+            Tk::Print,
+            Tk::Identifier("n".into()),
+            Tk::Semi,
+            Tk::RBrace,
+            //?  } count(3);
+            Tk::Identifier("count".into()),
+            Tk::Lpar,
+            Tk::Num(3),
+            Tk::Rpar,
+            Tk::Semi,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+
+        let environment = Env::new(EnvKind::Global);
+        // environment.define("n".into(), V::I32(10));
+        let mut inter = Interpreter::new(environment);
+
+        inter.eval(statements);
+        // todo: assert stdout
+        let last = inter.results.last();
+        assert_eq!(last, Some(&("print".into(), V::I32(3))));
+    }
+
+    #[test]
+    fn test_return_in_conditional() {
+        let tokens = vec![
+            // * ->     if (n < 1 or n == 1) return 2;
+            Tk::If,
+            Tk::Lpar,
+            Tk::Identifier("n".into()),
+            Tk::LT,
+            Tk::Num(1),
+            Tk::Or,
+            Tk::Identifier("n".into()),
+            Tk::EQ,
+            Tk::Num(1),
+            Tk::Rpar,
+            Tk::Return,
+            Tk::Num(2),
+            Tk::Semi,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+
+        let mut environment = Env::new(EnvKind::Global);
+        environment.define("n".into(), V::I32(10));
+        let mut inter = Interpreter::new(environment);
+
+        inter.eval(statements);
+        // todo: assert stdout
+        let last = inter.results.last();
+        assert_eq!(last, None);
+    }
+
+    // * ->  fun sayHi(a, b) {
+    // * ->     return a - b;
+    // * ->  }
+    // * ->  sayHi(1, 3);
+    #[test]
+    fn test_return() {
+        let tokens = vec![
+            Tk::Fn,
+            Tk::Identifier("sayHi".into()),
+            Tk::Lpar,
+            Tk::Identifier("a".into()),
+            Tk::Comma,
+            Tk::Identifier("b".into()),
+            Tk::Rpar,
+            Tk::LBrace,
+            Tk::Return,
+            Tk::Identifier("a".into()),
+            Tk::Sub,
+            Tk::Identifier("b".into()),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::Identifier("sayHi".into()),
+            Tk::Lpar,
+            Tk::Num(1),
+            Tk::Comma,
+            Tk::Num(3),
+            Tk::Rpar,
+            Tk::Semi,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+        let mut inter = Interpreter::new(Env::new(EnvKind::Global));
+        inter.eval(statements);
+        // todo: assert stdout
+        let last = inter.results.last().unwrap().clone();
+        println!("{:?}", inter.results);
+        assert_eq!(last, ("ret".into(), V::I32(-2)));
+    }
+
     // * ->  fun sayHi(a, b) {
     // * ->     print a - b;
     // * ->  }
@@ -2210,7 +2506,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut inter = Interpreter::new(Env::new());
+        let mut inter = Interpreter::new(Env::new(EnvKind::Global));
         inter.eval(statements);
         // todo: assert stdout
         let last = inter.results.last().unwrap().clone();
@@ -2292,7 +2588,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut environment = Env::new();
+        let mut environment = Env::new(EnvKind::Global);
         environment.define("a".into(), V::I32(0));
         environment.define("temp".into(), V::I32(0));
         let mut inter = Interpreter::new(environment);
@@ -2332,7 +2628,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut environment = Env::new();
+        let mut environment = Env::new(EnvKind::Global);
         environment.define("i".into(), V::I32(10));
         let mut inter = Interpreter::new(environment);
         inter.eval(statements);
@@ -2373,7 +2669,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut inter = Interpreter::new(Env::new());
+        let mut inter = Interpreter::new(Env::new(EnvKind::Global));
         inter.eval(statements);
         // todo: assert stdout
         let last = inter.results.last().unwrap().clone();
@@ -2397,7 +2693,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut inter = Interpreter::new(Env::new());
+        let mut inter = Interpreter::new(Env::new(EnvKind::Global));
         inter.eval(statements);
         // todo: assert stdout
         let last = inter.results.last().unwrap().clone();
@@ -2428,7 +2724,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut inter = Interpreter::new(Env::new());
+        let mut inter = Interpreter::new(Env::new(EnvKind::Global));
         inter.eval(statements);
         // todo: assert stdout
         let last = inter.results.last().unwrap().clone();
@@ -2456,7 +2752,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut inter = Interpreter::new(Env::new());
+        let mut inter = Interpreter::new(Env::new(EnvKind::Global));
         inter.eval(statements);
         // todo: assert stdout
         let last = inter.results.last().unwrap().clone();
@@ -2479,7 +2775,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut inter = Interpreter::new(Env::new());
+        let mut inter = Interpreter::new(Env::new(EnvKind::Global));
         inter.eval(statements);
         // todo: assert stdout
         let last = inter.results.last().unwrap().clone();
@@ -2530,7 +2826,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
 
-        let mut environment = Env::new();
+        let mut environment = Env::new(EnvKind::Global);
         environment.define("a".into(), V::I32(3));
         let mut inter = Interpreter::new(environment);
         inter.eval(statements);
@@ -2573,7 +2869,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
 
-        let mut environment = Env::new();
+        let mut environment = Env::new(EnvKind::Global);
         environment.define("a".into(), V::I32(1));
         environment.define("b".into(), V::I32(2));
         environment.define("c".into(), V::I32(3));
@@ -2662,7 +2958,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
 
-        let mut environment = Env::new();
+        let mut environment = Env::new(EnvKind::Global);
         environment.define("a".into(), V::I32(1));
         environment.define("b".into(), V::I32(2));
         environment.define("c".into(), V::I32(3));
@@ -2739,7 +3035,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
 
-        let mut environment = Env::new();
+        let mut environment = Env::new(EnvKind::Global);
         environment.define("a".into(), V::I32(1));
         environment.define("b".into(), V::I32(2));
         environment.define("c".into(), V::I32(3));
@@ -2783,7 +3079,9 @@ mod tests {
             Tk::End,
         ];
         let mut parser = Parser::new(tokens);
-        let expression = parser.statement().unwrap_or_else(|_| Statement::None);
+        let expression = parser
+            .statement()
+            .unwrap_or_else(|_| Statement::None("parse err".into()));
         assert_eq!(
             expression,
             Statement::Block(vec![
@@ -2833,7 +3131,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut environment = Env::new();
+        let mut environment = Env::new(EnvKind::Global);
         environment.define("a".into(), V::I32(20));
         let mut inter = Interpreter::new(environment);
         inter.eval(statements);
@@ -2858,7 +3156,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
 
-        let mut inter = Interpreter::new(Env::new());
+        let mut inter = Interpreter::new(Env::new(EnvKind::Global));
         inter.eval(statements);
 
         // todo: assert stdout
@@ -2903,7 +3201,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut environment = Env::new();
+        let mut environment = Env::new(EnvKind::Global);
         environment.define("a".into(), V::I32(2));
         environment.define("b".into(), V::I32(4));
         let mut inter = Interpreter::new(environment);
@@ -2929,7 +3227,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let expression = parser
             .declaration_or_statement()
-            .unwrap_or_else(|_| Statement::None);
+            .unwrap_or_else(|_| Statement::None("parse err".into()));
 
         assert_eq!(
             expression,
@@ -2950,7 +3248,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let expression = parser
             .declaration_or_statement()
-            .unwrap_or_else(|_| Statement::None);
+            .unwrap_or_else(|_| Statement::None("parse err".into()));
 
         assert_eq!(
             expression,
@@ -2970,7 +3268,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
 
-        let mut inter = Interpreter::new(Env::new());
+        let mut inter = Interpreter::new(Env::new(EnvKind::Global));
         inter.eval(statements);
 
         // todo: assert stdout
@@ -3005,7 +3303,7 @@ mod tests {
         ];
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
-        let mut inter = Interpreter::new(Env::new());
+        let mut inter = Interpreter::new(Env::new(EnvKind::Global));
         inter.eval(statements);
 
         // todo: assert stdout
@@ -3022,7 +3320,7 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let statements = parser.parse();
         println!("{:?}", statements);
-        let mut inter = Interpreter::new(Env::new());
+        let mut inter = Interpreter::new(Env::new(EnvKind::Global));
         inter.eval(statements);
 
         // todo: assert stdout
