@@ -2015,8 +2015,9 @@ impl Parser {
         // List<Expr> arguments = new ArrayList<>();
         let mut arguments: Vec<Expr> = vec![];
         // if (!check(RIGHT_PAREN)) {
+        self.consume_token();
         // todo: test end case❗
-        if self.current_token == Tk::Lpar && self.current_token != Tk::End {
+        if self.current_token != Tk::Rpar && self.current_token != Tk::End {
             //   do {
             //     arguments.add(expression());
             //   } while (match(COMMA));
@@ -2065,15 +2066,15 @@ impl Parser {
                         "Can't have more than 255 arguments.",
                     );
                 }
-                self.consume_token();
                 // Code that will be executed at least once
                 let argument_expr = self.expression()?;
                 arguments.push(argument_expr);
-                // Increment
                 // Conditional break to exit the loop
                 if self.current_token != Tk::Comma {
                     break;
                 }
+                // Increment
+                self.consume_token();
             }
         }
         /*
@@ -2253,6 +2254,57 @@ fn main() {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_call_with_arguments() {
+        let tokens = vec![
+            //?   var counter = makeCounter(3);
+            Tk::Var,
+            Tk::Identifier("counter".into()),
+            Tk::Assign,
+            Tk::Identifier("makeCounter".into()),
+            Tk::Lpar,
+            Tk::Num(3),
+            Tk::Rpar,
+            Tk::Semi,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+
+        let environment = Env::new(EnvKind::Global);
+        let mut inter = Interpreter::new(environment);
+        inter.eval(statements);
+
+        // todo: assert stdout
+        let last = inter.results.last();
+        assert_eq!(last, None);
+    }
+
+    #[test]
+    fn test_call_with_no_arguments() {
+        let tokens = vec![
+            //?   var counter = makeCounter();
+            Tk::Var,
+            Tk::Identifier("counter".into()),
+            Tk::Assign,
+            Tk::Identifier("makeCounter".into()),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Semi,
+            Tk::End,
+        ];
+        let mut parser = Parser::new(tokens);
+        let statements = parser.parse();
+
+        let environment = Env::new(EnvKind::Global);
+        let mut inter = Interpreter::new(environment);
+        inter.eval(statements);
+
+        // todo: assert stdout
+        let last = inter.results.last();
+        assert_eq!(last, None);
+    }
+
     // * ->  fun fib(n) {
     // * ->     if (n < 1 or n == 1) return n;
     // * ->     return fib(n - 2) - fib(n - 1);
@@ -2393,10 +2445,9 @@ mod tests {
         let statements = parser.parse();
 
         let environment = Env::new(EnvKind::Global);
-        // environment.define("n".into(), V::I32(10));
         let mut inter = Interpreter::new(environment);
-
         inter.eval(statements);
+
         // todo: assert stdout
         let last = inter.results.last();
         assert_eq!(last, Some(&("print".into(), V::I32(3))));
