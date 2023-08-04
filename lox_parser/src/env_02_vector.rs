@@ -2,18 +2,29 @@ use crate::{Tk, V};
 use std::collections::HashMap;
 
 #[allow(dead_code)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Env {
-    kind: EnvKind,
+    pub kind: EnvKind,
     values: HashMap<String, V>,
 }
 
-#[derive(Clone, Debug)]
+impl std::fmt::Display for Env {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Env {:?},", self.kind)?;
+        for (key, val) in self.values.iter() {
+            write!(f, "  ({key}, {val})")?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum EnvKind {
     Prelude,
     Global,
     Block,
     Call,
+    Closure(Tk),
 }
 
 #[allow(dead_code)]
@@ -119,9 +130,9 @@ mod tests {
         scope.define("b".into(), V::I32(10));
         scope.define("c".into(), V::I32(100));
 
-        let a = scope.get(Tk::Identifier("a".into()));
-        let b = scope.get(Tk::Identifier("b".into()));
-        let c = scope.get(Tk::Identifier("c".into()));
+        let a = scope.get(Tk::Identifier("a".into(), 1));
+        let b = scope.get(Tk::Identifier("b".into(), 1));
+        let c = scope.get(Tk::Identifier("c".into(), 1));
         assert_eq!(a, Some(V::I32(1)));
         assert_eq!(b, Some(V::I32(10)));
         assert_eq!(c, Some(V::I32(100)));
@@ -133,7 +144,7 @@ mod tests {
         scope.define("a".into(), V::I32(1));
         scope.define("b".into(), V::I32(10));
         scope.define("c".into(), V::I32(100));
-        let err = scope.get(Tk::Identifier("non-existen".into()));
+        let err = scope.get(Tk::Identifier("non-existen".into(), 0));
         assert_eq!(err, None);
     }
 
@@ -141,7 +152,7 @@ mod tests {
     fn it_assigns() {
         let mut scope = Env::new(EnvKind::Global);
         scope.define("a".into(), V::I32(1));
-        let a = scope.assign(Tk::Identifier("a".into()), V::I32(22));
+        let a = scope.assign(Tk::Identifier("a".into(), 1), V::I32(22));
         assert_eq!(a, Some(V::I32(22)));
     }
 
@@ -149,7 +160,7 @@ mod tests {
     fn it_errors_assignment() {
         let mut scope = Env::new(EnvKind::Global);
         scope.define("a".into(), V::I32(1));
-        let a = scope.assign(Tk::Identifier("b".into()), V::I32(22));
+        let a = scope.assign(Tk::Identifier("b".into(), 1), V::I32(22));
         assert_eq!(a, None);
     }
 }
