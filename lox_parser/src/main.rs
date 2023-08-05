@@ -763,6 +763,16 @@ impl<'a> Resolver<'a> {
             return;
         }
         if let Some(scope) = self.scopes.last_mut() {
+            let key = String::from(name.clone());
+            if scope.contains_key(&key) {
+                report_err(
+                    Tk::Identifier("another_name".into(), 0),
+                    name.clone(),
+                    "Already a variable with this name in this scope.",
+                );
+                //todo: remove panic, use static LOX::had_Error❗
+                panic!("Already a variable with this name in this scope.");
+            }
             /*
              * Declaration adds the variable to the innermost scope so that it
              * shadows any outer one and so that we know the variable exists.
@@ -784,6 +794,7 @@ impl<'a> Resolver<'a> {
         if self.scopes.is_empty() {
             return;
         }
+
         if let Some(scope) = self.scopes.last_mut() {
             /*
              * We set the variable’s value in the scope map to true to mark it
@@ -2931,16 +2942,48 @@ fn main() {
     //     Expr::grouping(Expr::literal(45.65)),
     // );
     // println!("{:?}", expression.to_string());
-    let a = 3;
-    {
-        let a = a - 1;
-        println!("{a}");
-    }
+    // let a = 3;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    //? fun bad() {
+    //?     var a = "first";
+    //?     var a = "second";
+    //? }
+    //? on js❗
+    //? Uncaught SyntaxError: Identifier 'a' has already been declared
+    //? on rust❗
+    //? there is no errors.
+    #[test]
+    #[should_panic = "Already a variable with this name in this scope."]
+    fn test_resolver_errors() {
+        let tokens = vec![
+            Tk::Fn,
+            Tk::Identifier("bad".into(), 1),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::LBrace,
+            //?  var a = "10;
+            Tk::Var,
+            Tk::Identifier("a".into(), 2),
+            Tk::Assign,
+            Tk::Num(10),
+            Tk::Semi,
+            //?  var a = "20;
+            Tk::Var,
+            Tk::Identifier("a".into(), 3),
+            Tk::Assign,
+            Tk::Num(10),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![("a".into(), V::I32(22))]);
+        let _inter = test_run(environment, statements);
+    }
 
     //? var a = 22;
     //? {
@@ -3974,6 +4017,17 @@ mod tests {
 
     fn test_run(environment: Env, statements: Vec<Statement>) -> Interpreter {
         let mut inter = Interpreter::new(environment);
+        //? Stop if there was a syntax error.
+        /*
+         * We don’t run the resolver if there are any parse errors.
+         * If the code has a syntax error, it’s never going to run,
+         * so there’s little value in resolving it.
+         * If the syntax is clean, we tell the resolver to do its thing.
+         * The resolver has a reference to the interpreter and pokes the
+         * resolution data directly into it as it walks over variables.
+         * When the interpreter runs next, it has everything it needs.
+         */
+        //? if (hadError) return;
         let mut semantic_pass = Resolver::new(&mut inter);
         for stt in statements.clone() {
             // println!(">>{:?}", stt);
