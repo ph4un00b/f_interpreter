@@ -229,7 +229,7 @@ impl fmt::Display for V {
         match self {
             V::Done => write!(f, "done!")?,
             V::Return(val) => write!(f, "ret {:?}", val)?,
-            V::Callable(function) => write!(f, "#{}", function)?,
+            V::Callable(function) => write!(f, "{}", function)?,
             V::NativeCallable(fn_name) => match fn_name.as_str() {
                 "clock" => write!(f, "#<native-{}>", fn_name)?,
                 _ => write!(f, "#{}", fn_name)?,
@@ -249,7 +249,7 @@ impl From<Tk> for String {
         match value {
             Tk::Num(val) => val.to_string(),
             Tk::Float(val) => val.to_string(),
-            Tk::Identifier(val, line) => val,
+            Tk::Identifier(val, _line) => val,
             Tk::Sub => "-".to_string(),
             Tk::Lpar => "(".to_string(),
             Tk::Mul => "*".to_string(),
@@ -525,32 +525,6 @@ impl Arity for FunctionObject {
     }
 }
 
-// impl From<Statement> for Vec<Tk> {
-//     fn from(value: Statement) -> Self {
-//         match value {
-//             Statement::FnDeclaration {
-//                 name: _,
-//                 parameters,
-//                 body: _,
-//             } => parameters,
-//             _ => unreachable!("no parameters!"),
-//         }
-//     }
-// }
-
-// impl From<Statement> for Vec<Statement> {
-//     fn from(value: Statement) -> Self {
-//         match value {
-//             Statement::FnDeclaration {
-//                 name: _,
-//                 parameters: _,
-//                 body,
-//             } => body,
-//             _ => unreachable!("no body!"),
-//         }
-//     }
-// }
-
 impl Drop for FunctionObject {
     fn drop(&mut self) {
         // todo: si quiero modificar interpreter#global_env
@@ -593,13 +567,15 @@ impl FnCallable for FunctionObject {
          * For each pair, it creates a new variable with the parameter’s
          * name and binds it to the argument’s value.
          */
+
+        interpreter.current_function_call = fn_name.clone();
         interpreter
             .closures
-            .push(Env::new(EnvKind::Closure(fn_name)));
+            .insert(fn_name.clone(), Env::new(EnvKind::Closure(fn_name.clone())));
 
-        let closure_env = interpreter.closures.last_mut().unwrap();
+        // let closure_env = interpreter.closures.last_mut().unwrap();
         // let mut params_env = &self.closure;
-        let mut params_env = Env::new(EnvKind::Call);
+        let mut params_env = Env::new(EnvKind::Call(fn_name.clone()));
         for (index, param) in fn_params.into_iter().enumerate() {
             let param_name = String::from(param);
             let argument_val = arguments.get(index).unwrap();
@@ -641,8 +617,13 @@ impl FnCallable for FunctionObject {
              * That’s why we create a new environment at each call,
              * not at the function declaration.
              */
+            //todo: remove duplication❗
             params_env.define(param_name.clone(), argument_val.clone());
-            closure_env.define(param_name, argument_val.clone());
+            interpreter
+                .closures
+                .entry(fn_name.clone())
+                .and_modify(|closure_env| closure_env.define(param_name, argument_val.clone()));
+            // closure_env.define(param_name, argument_val.clone());
         }
         /*
          * Once the body of the function has finished executing,
@@ -656,6 +637,7 @@ impl FnCallable for FunctionObject {
         let returned = interpreter.eval_block(fn_body)?;
         interpreter.global_env.pop();
         println!("<<< CALL out");
+
         println!("closures {:?}", interpreter.closures);
         for env in interpreter.global_env.iter() {
             println!("globals: {}", env);
@@ -707,6 +689,7 @@ struct Resolver<'a> {
     interpreter: &'a mut Interpreter,
 }
 
+#[allow(unused)]
 impl<'a> Resolver<'a> {
     fn new(interpreter: &'a mut Interpreter) -> Resolver<'a> {
         Self {
@@ -1060,10 +1043,9 @@ impl ResolutionPass<Statement> for Resolver<'_> {
                  */
                 self.resolve(condition);
                 self.resolve(*then_statement);
-                if let Statement::None(_) = *else_statement {
-                    ();
-                } else {
-                    self.resolve(*else_statement);
+                match *else_statement {
+                    Statement::None(_) => {}
+                    _ => self.resolve(*else_statement),
                 }
             }
             /*
@@ -1076,13 +1058,10 @@ impl ResolutionPass<Statement> for Resolver<'_> {
             /*
              * Same deal for return.
              */
-            Statement::Return { keyword: _, value } => {
-                if let Expr::None = value {
-                    ();
-                } else {
-                    self.resolve(value);
-                }
-            }
+            Statement::Return { keyword: _, value } => match value {
+                Expr::None => {}
+                _ => self.resolve(value),
+            },
             /*
              * As in if statements, with a while statement,
              * we resolve its condition and resolve the body exactly once.
@@ -1102,7 +1081,10 @@ type LocalSideTable = HashMap<Expr, usize>;
 struct Interpreter {
     runtime_error: bool,
     global_env: Vec<Env>,
-    closures: Vec<Env>,
+    current_function_call: Tk,
+    //? this is for keeping track the parent of function declaration
+    functions_map: HashMap<Tk, Tk>,
+    closures: HashMap<Tk, Env>,
     /*
      * Interactive tools like IDEs often incrementally re-parse and re-resolve
      * parts of the user’s program.
@@ -1111,7 +1093,7 @@ struct Interpreter {
      * A benefit of storing this data outside of the nodes is that
      * it makes it easy to discard it—simply clear the map.
      */
-    locals: HashMap<Expr, usize>,
+    locals: LocalSideTable,
     // todo: como definer sólo unas strings ala typescript❓👀
     // todo: tipo -> results: Vec<("let" | "print", V)>
     results: Vec<(String, V)>,
@@ -1147,7 +1129,9 @@ impl Interpreter {
         Self {
             runtime_error: false,
             global_env: vec![preludio, initial_env],
-            closures: vec![],
+            closures: HashMap::new(),
+            functions_map: HashMap::new(),
+            current_function_call: Tk::Default,
             results: vec![],
             locals: HashMap::new(),
         }
@@ -1241,7 +1225,9 @@ impl Interpreter {
                  * we create a new binding in the current environment and
                  * store a reference to it there.
                  */
-                self.define_variable(name, V::Callable(Box::new(function)));
+                self.functions_map
+                    .insert(name.clone(), self.current_function_call.clone());
+                self.define_declaration(name.clone(), V::Callable(Box::new(function)));
                 Ok(V::Done)
             }
             Statement::While { condition, body } => {
@@ -1308,27 +1294,22 @@ impl Interpreter {
                  * a little harsh to do so in Lox.
                  */
                 let val = self.eval_expr(initializer)?;
-                //? ya encontramos el error
-                //? salvamos la variable
-                //? en el scope del bloque
-                //? pero el bloque desaparece despues de evaluarse
-                //? lo que queremos es guardar lo del bloque
-                //? en el env del closure❗
-
                 //? detalles, como el scope es similar a
                 //? una lista enlazada, hay que tener en cuenta
                 //? que hay dos env temporales por bloque
                 //? la del block y la de call
                 //? y parece que lo que queremos es
                 //? usar el env closure, para los dos, sera❓
-                self.define_variable(name, val);
+                //todo: unir call y block, lo mejor seria solo usar el closure
+                //todo: por ahora hay duplicación❗
+                self.define_declaration(name, val);
                 Ok(V::Done)
             }
             Statement::None(msg) => unreachable!("{}", msg),
         }
     }
 
-    fn define_variable(&mut self, name: Tk, val: V) {
+    fn define_declaration(&mut self, name: Tk, val: V) {
         /*
         todo: test ->
         * var a;
@@ -1337,29 +1318,18 @@ impl Interpreter {
         * print a;
         * var a = "too late!";
         */
-        // self.results.push(("let".into(), val.clone()));
-        //? como sabemos si viene de bloque❓
-        //? aquí podríamos usar la meta-data del env
-        //? para verificar que es del bloque
         let name = String::from(name);
-        //todo: supongo habrá el algoritmo más prolijo
-        //TODO: básicamente si no es call el penúltimo
-        //TODO: no va  a closure
         let size = self.global_env.len() - 2;
         if let Some(call_environment) = self.global_env.get_mut(size) {
-            //todo: ahora el tema, es el environment closure xP
-            //? habría que crear otra estrategia,
-            //? si viene de CALL podríamos asumir que el CLOSURE env
-            //? esta antes, y asi acceder sin miedo a que se pierda
-            //? cuando se ejecute el bloque❗❓, peeeeero...
-            //? cuando desaparece el env del closure❓❓❓
-            //? ...
-            //? en js desaparece cuando ya no es accesible la
-            //? referencia al closure, si no,
-            //? queda ahi con la memoria lista para usarse.
-            //? un efecto colateral es tener la capacidad de
-            //? tener scopes dinámicos❗ a la bash o el viejo javascript :]
-            if let EnvKind::Call = call_environment.kind {
+            if let EnvKind::Call(closure_name) = &call_environment.kind {
+                //? el detalle es que BLOCK
+                //? puede ser de otro statement
+                //? tipo for o while
+                //? para asegurarme, debido a la implementación
+                //? que no es recursiva
+                //? necesito los últimos dos environments
+                //? si es BLOCK Y CALL, es para la closure
+                //? si no, va al global❗
                 /*
                  * in our implementation, environments do act like the entire block is one scope,
                  * just a scope that changes over time. Closures do not like that.
@@ -1371,40 +1341,27 @@ impl Interpreter {
                  * declared in the scope that environment corresponds to,
                  * the closure sees the new variable, even though the declaration does not precede the function.
                  */
-                println!("\nShould define in Closure: {name:?}");
-                let closure_env = self.closures.last_mut().unwrap();
-                closure_env.define(name.clone(), val.clone());
+                println!("\ndefine declaration {name:?} in Closure");
+                //todo: remove duplication❗
+                self.closures
+                    .entry(closure_name.clone())
+                    .and_modify(|closure_env| closure_env.define(name.clone(), val.clone()));
 
                 call_environment.define(name.clone(), val.clone());
-                for env in self.global_env.iter() {
-                    println!("globals: {}", env);
-                }
+                // for env in self.global_env.iter() {
+                //     println!("globals: {}", env);
+                // }
                 return;
             }
         }
 
         if let Some(environment) = self.global_env.last_mut() {
-            println!("\nDefining in {:?}, var: {name:?}", environment.kind);
+            println!("\ndefine declaration {name:?} in {:?}", environment.kind);
             environment.define(name, val);
-            // match environment.kind {
-            //     EnvKind::Prelude => todo!(),
-            //     EnvKind::Global => todo!(),
-            //     //? el detalle es que BLOCK
-            //     //? puede ser de otro statement
-            //     //? tipo for o while
-            //     //? para asegurarme, debido a la implementación
-            //     //? que no es recursiva
-            //     //? necesito los últimos dos environments
-            //     //? si es BLOCK Y CALL, es para la closure
-            //     //? si no, va al global❗
-            //     EnvKind::Block => todo!(),
-            //     EnvKind::Call => todo!(),
-            //     EnvKind::Closure(_) => todo!(),
-            // }
         }
-        for env in self.global_env.iter() {
-            println!("globals: {}", env);
-        }
+        // for env in self.global_env.iter() {
+        //     println!("globals: {}", env);
+        // }
     }
 
     fn eval_expr(&mut self, expr: Expr) -> RValue {
@@ -1499,12 +1456,6 @@ impl Interpreter {
                 println!("\n WiLL CALL {}::args{argument_list:?}", function);
                 let val = function.call(self, argument_list)?;
                 //? siempre deberia de haber un closure env
-                // if let Some(dropped) = self.global_env.pop() {
-                //     println!("!!!!!!!manually dropping call: {dropped:?}");
-                //     Ok(val)
-                // } else {
-                //     Ok(val)
-                // }
                 Ok(val)
             }
             Expr::Assign(to_identifier, right) => {
@@ -1517,46 +1468,13 @@ impl Interpreter {
                  */
                 //? var a = 1;
                 // todo: print a = 2; // "2".
-                if let Some(distance) = self.locals.get(&expr) {
-                    //? +1 PRELUDE +1 GLOBALS
-                    let index = 2 + (*distance);
-                    println!(
-                        "\ntotal: {}, distance: {distance}, idx: {index} for {expr:?}",
-                        self.global_env.len()
-                    );
-
-                    if let Some(environment) = self.global_env.get_mut(index) {
-                        println!(
-                            "assigning to: {to_identifier:?} ? -> {:?}",
-                            environment.kind
-                        );
-                        // todo: remove after depth testing
-                        if environment.kind == EnvKind::Global {
-                            panic!("should not be global!")
-                        }
-                        if let Some(value) = environment.assign(to_identifier.clone(), value) {
-                            Ok(value)
-                        } else {
-                            Err(RE::UndefinedVariable(to_identifier.into()))
-                        }
-                    } else {
-                        unreachable!("an error in the resolver or the interpreter!")
-                    }
-                } else {
-                    //? PRELUDE is At index: 0
-                    if let Some(globals) = self.global_env.get_mut(1) {
-                        println!("\nassigning to: {to_identifier:?} ? -> {:?}", globals.kind);
-                        if let Some(value) = globals.assign(to_identifier.clone(), value) {
-                            Ok(value)
-                        } else {
-                            Err(RE::UndefinedVariable(to_identifier.into()))
-                        }
-                    } else {
-                        unreachable!("globals is not defined!")
-                    }
-                }
+                self.assign_variable(to_identifier, value, expr)
             }
-            Expr::Let(identifier) => self.lookup_variable(identifier, expr),
+            Expr::Let(identifier) => {
+                let value = self.lookup_variable(identifier, expr)?;
+                println!("looked_up_variable: {value}:?");
+                Ok(value)
+            }
             Expr::Unary { operator, right } => {
                 /*
                  * First, we evaluate the operand expression.
@@ -1681,6 +1599,65 @@ impl Interpreter {
         }
     }
 
+    //todo: refactor❗
+    fn assign_variable(&mut self, to_identifier: Tk, value: V, expr: Expr) -> RValue {
+        if let Some(distance) = self.locals.get(&expr) {
+            //? +1 PRELUDE +1 GLOBALS
+            let index = 2 + (*distance);
+            println!(
+                "\ntotal: {}, distance: {distance}, idx: {index} for {expr:?}",
+                self.global_env.len()
+            );
+
+            if let Some(environment) = self.global_env.get_mut(index) {
+                // println!("\nlooking for: {identifier:?} ? -> {:?}", environment.kind);
+                println!("\nenv: {environment}");
+                // todo: remove after depth testing
+                if environment.kind == EnvKind::Global {
+                    panic!("should not be global!")
+                }
+                //? looking up in closure
+                let current_fn_call = &self.current_function_call;
+                if environment.kind == EnvKind::Call(current_fn_call.clone()) {
+                    // println!("\n fns: {:?}", self.functions_table);
+                    // println!("\n closures: {:?}", self.closures);
+                    if let Some(closure_name) = self.functions_map.get(current_fn_call) {
+                        println!("\nShould look in Closure: {closure_name:?}");
+                        if let Some(closure) = self.closures.get_mut(&closure_name.clone()) {
+                            println!("\nlooking for: {to_identifier:?} in {:?}", closure.kind);
+                            if let Some(value) =
+                                closure.assign(to_identifier.clone(), value.clone())
+                            {
+                                return Ok(value);
+                            }
+                        }
+                    }
+                }
+                //? continue with global_env
+                if let Some(value) = environment.assign(to_identifier.clone(), value.clone()) {
+                    Ok(value)
+                } else {
+                    Err(RE::UndefinedVariable(to_identifier.into()))
+                }
+            } else {
+                unreachable!("an error in the resolver or the interpreter!")
+            }
+        } else {
+            //? PRELUDE is At index: 0
+            if let Some(globals) = self.global_env.get_mut(1) {
+                println!("\nassigning to: {to_identifier:?} ? -> {:?}", globals.kind);
+                if let Some(value) = globals.assign(to_identifier.clone(), value) {
+                    Ok(value)
+                } else {
+                    Err(RE::UndefinedVariable(to_identifier.into()))
+                }
+            } else {
+                unreachable!("globals is not defined!")
+            }
+        }
+    }
+
+    //todo: refactor❗
     fn lookup_variable(&mut self, identifier: Tk, expr: Expr) -> RValue {
         /*
          * The interpreter code trusts that the resolver did its job
@@ -1693,9 +1670,10 @@ impl Interpreter {
         if let Some(distance) = self.locals.get(&expr) {
             // let size = self.global_env.len() - 2;
             //? +1 PRELUDE +1 GLOBALS
-            let index = 2 + (*distance);
+            let mut index = 2 + (*distance);
             println!(
-                "\ntotal: {}, distance: {distance}, idx: {index} for {expr:?}",
+                "\ncurrent: {:?}, total: {}, distance: {distance}, idx: {index} for {expr:?}",
+                self.current_function_call,
                 self.global_env.len()
             );
             /*
@@ -1705,23 +1683,40 @@ impl Interpreter {
              * It doesn’t even have to check to see if the variable is
              * there—we know it will be because the resolver already found it before.
              */
-            for env in self.global_env.iter() {
-                println!("globals: {}", env);
+            let mut tmp = index + 1;
+            //todo: this seems brittle, find out a better strategy❗
+            while let Some(env) = self.global_env.get(tmp) {
+                // println!("env: {}", env);
+                if let EnvKind::Call(fn_name) = env.kind.clone() {
+                    //? if next CAll is the same function call
+                    //? it is a recursive call
+                    if fn_name == self.current_function_call {
+                        println!("tmp: {}", tmp - index);
+                        index += tmp - index
+                    } else {
+                        //? hence not a recursive call❗
+                        break;
+                    }
+                }
+                tmp += 1;
             }
+            println!("idx: {index}");
             if let Some(environment) = self.global_env.get_mut(index) {
-                println!("\nlooking for: {identifier:?} ? -> {:?}", environment.kind);
+                // println!("\nlooking for: {identifier:?} ? -> {:?}", environment.kind);
                 println!("\nenv: {environment}");
                 // todo: remove after depth testing
                 if environment.kind == EnvKind::Global {
                     panic!("should not be global!")
                 }
-                //? for closures
-                if environment.kind == EnvKind::Call {
-                    println!("\nShould look in Closure: {identifier:?}");
-                    println!("\nclosures: {:?}", self.closures);
-                    let mut closure_iter = self.closures.iter_mut();
-                    loop {
-                        if let Some(closure) = closure_iter.next_back() {
+                //? looking up in closure
+                let current_fn_call = &self.current_function_call;
+                if environment.kind == EnvKind::Call(current_fn_call.clone()) {
+                    // println!("\n fns: {:?}", self.functions_table);
+                    // println!("\n closures: {:?}", self.closures);
+                    if let Some(closure_name) = self.functions_map.get(current_fn_call) {
+                        //? if tk:default -> then look up on GLOBALS
+                        println!("\nShould look in Closure: {closure_name:?}");
+                        if let Some(closure) = self.closures.get(&closure_name.clone()) {
                             println!("\nlooking for: {identifier:?} in {:?}", closure.kind);
                             if let Some(value) = closure.fetch(identifier.clone()) {
                                 return Ok(value);
@@ -1735,34 +1730,14 @@ impl Interpreter {
                 } else {
                     Err(RE::UndefinedVariable(identifier.into()))
                 }
-                //     if let EnvKind::Call = dato.kind {
-                //         println!("\nShould look in Closure: {identifier:?}");
-                //         println!("\n>{:?}", self.closures);
-                //         let mut closure_iter = self.closures.iter_mut();
-                //         loop {
-                //             match closure_iter.next_back() {
-                //                 Some(closure) => {
-                //                     println!("\nlooking for: {identifier:?} ? -> {:?}", closure.kind);
-                //                     if let Some(value) = closure.fetch(identifier.clone()) {
-                //                         return Ok(value);
-                //                     }
-                //                 }
-                //                 None => (),
-                //             }
-                //         }
-                //     } else {
-                //         ();
-                //     }
             } else {
                 unreachable!("an error in the resolver or the interpreter!")
             }
-            // return environment.getAt(distance, name.lexeme);
-            // return Ok(V::Done);
         } else {
             //? PRELUDE is At index: 0
             if let Some(globals) = self.global_env.get_mut(1) {
-                println!("\nlooking for: {identifier:?} ? -> {:?}", globals.kind);
-                println!("\nglobals: {globals}");
+                println!("\nlooking for: {identifier:?} In {:?}", globals.kind);
+                // println!("\nglobals: {globals}");
                 if let Some(value) = globals.fetch(identifier.clone()) {
                     Ok(value)
                 } else {
@@ -1771,17 +1746,6 @@ impl Interpreter {
             } else {
                 unreachable!("globals is not defined!")
             }
-            // loop {
-            //     match globals.next_back() {
-            //         Some(outer_env) => {
-            //             println!("\nlooking for: {identifier:?} ? -> {:?}", outer_env.kind);
-            //             if let Some(value) = outer_env.fetch(identifier.clone()) {
-            //                 return Ok(value);
-            //             }
-            //         }
-            //         None => return Err(RE::UndefinedVariable(identifier.into())),
-            //     }
-            // }
         }
     }
 
@@ -2978,16 +2942,16 @@ fn main() {
 mod tests {
     use super::*;
 
-    //? var a = "global";
+    //? var a = 22;
     //? {
     //?   fun showA() {
     //?     print a;
     //?   }
     //?   showA();
-    //?   var a = "block";
+    //?   var a = 1_000;
     //?   showA();
     //? }
-    // #[test]
+    #[test]
     fn test_avoid_dynamic_scope() {
         let tokens = vec![
             Tk::LBrace,
@@ -3019,22 +2983,15 @@ mod tests {
             Tk::RBrace,
             Tk::End,
         ];
-        let mut parser = Parser::new(tokens);
-        let statements = parser.parse();
-
-        let mut environment = Env::new(EnvKind::Global);
-        environment.define("a".into(), V::I32(22));
-        let mut inter = Interpreter::new(environment);
-        inter.eval(statements);
+        let (statements, environment) = test_setup(tokens, vec![("a".into(), V::I32(22))]);
+        let inter = test_run(environment, statements);
 
         // todo: assert stdout
-        let prints = inter.results;
-        println!("{:#?}", inter.closures);
-        println!("{:#?}", inter.global_env);
-        assert_eq!(
-            prints,
-            vec![("print".into(), V::I32(22)), ("print".into(), V::I32(22))]
-        );
+
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(22)));
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(22)));
     }
 
     #[test]
@@ -3071,12 +3028,12 @@ mod tests {
             Tk::Lpar,
             Tk::Rpar,
             Tk::LBrace,
-            // Tk::Identifier("i".into(), 4),
-            // Tk::Assign,
-            // Tk::Identifier("i".into(), 4),
-            // Tk::Sub,
-            // Tk::Num(1),
-            // Tk::Semi,
+            Tk::Identifier("i".into(), 4),
+            Tk::Assign,
+            Tk::Identifier("i".into(), 4),
+            Tk::Sub,
+            Tk::Num(1),
+            Tk::Semi,
             Tk::Print,
             Tk::Identifier("i".into(), 5),
             Tk::Semi,
@@ -3100,19 +3057,22 @@ mod tests {
             Tk::Lpar,
             Tk::Rpar,
             Tk::Semi,
-            // // //?   counter(); // "2".
-            // Tk::Identifier("counter".into(), 10),
-            // Tk::Lpar,
-            // Tk::Rpar,
-            // Tk::Semi,
+            // //?   counter(); // "2".
+            Tk::Identifier("counter".into(), 10),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Semi,
             Tk::End,
         ];
         let (statements, environment) = test_setup(tokens, vec![]);
         let inter = test_run(environment, statements);
 
         // todo: assert stdout
-        let last = inter.results.last();
-        assert_eq!(last, Some(&("print".into(), V::I32(0))));
+
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(-2)));
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(-1)));
     }
 
     #[test]
@@ -3167,7 +3127,7 @@ mod tests {
     // * ->  for (var i = 10; 0 < i; i = i - 1) {
     // * ->     print fib(i);
     // * ->  }
-    // #[test]
+    #[test]
     fn test_recursion() {
         let tokens = vec![
             Tk::Fn,
@@ -3244,18 +3204,28 @@ mod tests {
             // Tk::Semi,
             // Tk::End,
         ];
-        let mut parser = Parser::new(tokens);
-        let statements = parser.parse();
-
-        let mut inter = Interpreter::new(Env::new(EnvKind::Global));
-        inter.eval(statements);
+        let (statements, environment) = test_setup(tokens, vec![]);
+        let inter = test_run(environment, statements);
 
         // todo: assert stdout
-        let last = inter.results.last().unwrap().clone();
-        assert_eq!(last, ("print".into(), V::I32(-55)));
+
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(-55)));
+        assert_eq!(iter.next_back().unwrap(), &("ret".into(), V::I32(-55)));
+        assert_eq!(iter.next_back().unwrap(), &("ret".into(), V::I32(34)));
+        assert_eq!(iter.next_back().unwrap(), &("ret".into(), V::I32(-21)));
+        assert_eq!(iter.next_back().unwrap(), &("ret".into(), V::I32(13)));
+        assert_eq!(iter.next_back().unwrap(), &("ret".into(), V::I32(-8)));
+        assert_eq!(iter.next_back().unwrap(), &("ret".into(), V::I32(5)));
+        assert_eq!(iter.next_back().unwrap(), &("ret".into(), V::I32(-3)));
+        assert_eq!(iter.next_back().unwrap(), &("ret".into(), V::I32(2)));
+        assert_eq!(iter.next_back().unwrap(), &("ret".into(), V::I32(-1)));
+        assert_eq!(iter.next_back().unwrap(), &("ret".into(), V::I32(1)));
+        assert_eq!(iter.next_back().unwrap(), &("ret".into(), V::I32(0)));
     }
 
-    // #[test]
+    #[test]
     fn test_count() {
         let tokens = vec![
             //?  function count(n) {
@@ -3296,16 +3266,16 @@ mod tests {
             Tk::Semi,
             Tk::End,
         ];
-        let mut parser = Parser::new(tokens);
-        let statements = parser.parse();
-
-        let environment = Env::new(EnvKind::Global);
-        let mut inter = Interpreter::new(environment);
-        inter.eval(statements);
+        let (statements, environment) = test_setup(tokens, vec![]);
+        let inter = test_run(environment, statements);
 
         // todo: assert stdout
-        let last = inter.results.last();
-        assert_eq!(last, Some(&("print".into(), V::I32(3))));
+
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(3)));
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(2)));
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(1)));
     }
 
     #[test]
@@ -3760,7 +3730,7 @@ mod tests {
             Tk::End,
         ];
         let (statements, environment) = test_setup(tokens, vec![("a".to_string(), V::I32(3))]);
-        let inter = test_run(environment, statements);
+        let _inter = test_run(environment, statements);
     }
 
     //* let a = 1;
@@ -4006,11 +3976,14 @@ mod tests {
         let mut inter = Interpreter::new(environment);
         let mut semantic_pass = Resolver::new(&mut inter);
         for stt in statements.clone() {
-            println!(">>{:?}", stt);
+            // println!(">>{:?}", stt);
             semantic_pass.resolve(stt);
         }
         println!("\nSTATE: {:?}\n", inter.locals);
         inter.eval(statements);
+
+        println!("\n{:?}", inter.current_function_call);
+        println!("\n{:?}", inter.functions_map);
         inter
     }
 

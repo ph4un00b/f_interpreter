@@ -23,7 +23,7 @@ pub enum EnvKind {
     Prelude,
     Global,
     Block,
-    Call,
+    Call(Tk),
     Closure(Tk),
 }
 
