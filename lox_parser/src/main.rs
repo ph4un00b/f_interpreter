@@ -250,6 +250,7 @@ impl From<Tk> for String {
             Tk::Num(val) => val.to_string(),
             Tk::Float(val) => val.to_string(),
             Tk::Identifier(val, _line) => val,
+            Tk::Return(_line) => "ret".to_string(),
             Tk::Sub => "-".to_string(),
             Tk::Lpar => "(".to_string(),
             Tk::Mul => "*".to_string(),
@@ -271,7 +272,6 @@ impl From<Tk> for String {
             Tk::Else => "else".to_string(),
             Tk::While => "while".to_string(),
             Tk::Print => "put".to_string(),
-            Tk::Return => "ret".to_string(),
             Tk::Assign => "=".to_string(),
             Tk::LBrace => "{".to_string(),
             Tk::RBrace => "}".to_string(),
@@ -288,6 +288,7 @@ pub enum Tk {
     Num(i32),
     Float(String),
     Identifier(String, u32),
+    Return(u32),
     Comma,
     Assign,
     Sub,
@@ -307,7 +308,6 @@ pub enum Tk {
     If,
     While,
     Print,
-    Return,
     LBrace,
     RBrace,
     Else,
@@ -675,8 +675,14 @@ where
  * The value associated with a key in the scope map represents
  * whether or not we have finished resolving that variable’s initializer.
  */
-type LocalBlockScope = HashMap<String, bool>;
 
+#[derive(Debug, Clone, PartialEq)]
+enum FunctionType {
+    None,
+    Function,
+}
+
+type LocalBlockScope = HashMap<String, bool>;
 struct Resolver<'a> {
     /*
      * The scope stack is only used for local block scopes.
@@ -685,7 +691,22 @@ struct Resolver<'a> {
      * When resolving a variable, if we can’t find it in the stack
      * of local scopes, we assume it must be global.
      */
+    /*
+     * Our resolver calculates which environment the variable is found in,
+     * but it’s still looked up by name in that map.
+     * A more efficient environment representation would store local
+     * variables in an array and look them up by index.
+     */
+    // todo:
+    /*
+     * Extend the resolver to associate a unique index for each local
+     * variable declared in a scope. When resolving a variable access,
+     * look up both the scope the variable is in and its index and store that.
+     * In the interpreter, use that to quickly access a variable by its
+     * index instead of using a map.
+     */
     scopes: Vec<LocalBlockScope>,
+    current_function_type: FunctionType,
     interpreter: &'a mut Interpreter,
 }
 
@@ -695,6 +716,7 @@ impl<'a> Resolver<'a> {
         Self {
             scopes: vec![],
             interpreter,
+            current_function_type: FunctionType::None,
         }
     }
 
@@ -844,13 +866,25 @@ impl<'a> Resolver<'a> {
      * It creates a new scope for the body and then binds variables
      * for each of the function’s parameters.
      */
-    fn resolve_function_declaration(&mut self, function_declaration: Statement) {
+    fn resolve_function_declaration(
+        &mut self,
+        function_declaration: Statement,
+        kind: FunctionType,
+    ) {
         if let Statement::FunctionDeclaration {
             name: _,
             parameters,
             body,
         } = function_declaration
         {
+            // * We stash the previous value of the field in a local variable first.
+            // * Remember, Lox has local functions, so you can nest function declarations
+            // * arbitrarily deeply. We need to track not just that we’re in a function,
+            // * but how many we’re in.
+            // todo: check for a swap alternative❗
+            let enclosing_function = self.current_function_type.clone();
+            self.current_function_type = kind;
+
             self.begin_scope();
             for param in parameters {
                 self.declare_variable(param.clone());
@@ -868,6 +902,15 @@ impl<'a> Resolver<'a> {
                 self.resolve(stt);
             }
             self.end_scope();
+            /*
+             * We could use an explicit stack of FunctionType values for that,
+             * but instead we’ll piggyback on the JVM.
+             * We store the previous value in a local on the Java stack.
+             *
+             * When we’re done resolving
+             * the function body, we restore the field to that value.
+             */
+            self.current_function_type = enclosing_function;
         } else {
             unreachable!("should be function_declaration")
         }
@@ -1010,7 +1053,7 @@ impl ResolutionPass<Statement> for Resolver<'_> {
             } => {
                 self.declare_variable(name.clone());
                 self.define_variable(name);
-                self.resolve_function_declaration(val);
+                self.resolve_function_declaration(val, FunctionType::Function);
             }
             /*
              * A variable declaration adds a new variable to the current scope.
@@ -1069,10 +1112,36 @@ impl ResolutionPass<Statement> for Resolver<'_> {
             /*
              * Same deal for return.
              */
-            Statement::Return { keyword: _, value } => match value {
-                Expr::None => {}
-                _ => self.resolve(value),
-            },
+            Statement::Return { keyword, value } => {
+                if self.current_function_type == FunctionType::None {
+                    // report_err(stmt.keyword, "Can't return from top-level code.");
+                    //todo: use lox::error_error instead of panic
+                    /*
+                     * You could imagine doing lots of other analysis in here.
+                     * For example,
+                     * if we added break statements to Lox,
+                     * we would probably want to ensure they are only used inside loops.
+                     */
+                    //todo: add break❗
+                    /*
+                     * many IDEs will warn if you have unreachable code after a
+                     * return statement, or a local variable whose value is never read.
+                     * All of that would be pretty easy to add to our static
+                     * visiting pass, or as separate passes.❗
+                     *
+                     * However, there is a real runtime cost to traversing the
+                     * syntax tree itself, so bundling multiple analyses into a
+                     * single pass is usually faster.
+                     */
+                    //todo: Extend the resolver to report an error if a local variable is never used.
+                    panic!("{keyword:?}, Can't return from top-level code.");
+                }
+
+                match value {
+                    Expr::None => {}
+                    _ => self.resolve(value),
+                }
+            }
             /*
              * As in if statements, with a while statement,
              * we resolve its condition and resolve the body exactly once.
@@ -2107,7 +2176,7 @@ impl Parser {
          * subsequent phases are skipped.
          */
         let stt = match self.current_token {
-            Tk::Return => self.return_statement()?,
+            Tk::Return(_) => self.return_statement()?,
             Tk::For => self.for_statement()?,
             Tk::While => self.while_statement()?,
             Tk::If => self.conditional_statement()?,
@@ -2892,7 +2961,7 @@ impl Parser {
                 | Tk::If
                 | Tk::While
                 | Tk::Print
-                | Tk::Return => return,
+                | Tk::Return(_) => return,
                 _ => self.consume_token(),
             }
         }
@@ -2948,6 +3017,26 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[should_panic = "Return(1), Can't return from top-level code."]
+    fn test_invalid_return() {
+        let tokens = vec![
+            //? return "at top level";
+            Tk::Return(1),
+            Tk::Num(10),
+            Tk::Semi,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![("a".into(), V::I32(22))]);
+        let inter = test_run(environment, statements);
+
+        // todo: assert stdout
+
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(22)));
+    }
 
     //? fun bad() {
     //?     var a = "first";
@@ -3083,7 +3172,7 @@ mod tests {
             Tk::RBrace,
             //?     return count;
             //?   }
-            Tk::Return,
+            Tk::Return(7),
             Tk::Identifier("count".into(), 7),
             Tk::Semi,
             Tk::RBrace,
@@ -3190,11 +3279,11 @@ mod tests {
             Tk::EQ,
             Tk::Num(1),
             Tk::Rpar,
-            Tk::Return,
+            Tk::Return(2),
             Tk::Identifier("n".into(), 2),
             Tk::Semi,
             // * ->     return fib(n - 2) - fib(n - 1);
-            Tk::Return,
+            Tk::Return(3),
             Tk::Identifier("fibo".into(), 3),
             Tk::Lpar,
             Tk::Identifier("n".into(), 3),
@@ -3335,7 +3424,7 @@ mod tests {
             Tk::EQ,
             Tk::Num(1),
             Tk::Rpar,
-            Tk::Return,
+            Tk::Return(1),
             Tk::Num(2),
             Tk::Semi,
             Tk::End,
@@ -3368,7 +3457,7 @@ mod tests {
             Tk::Identifier("b".into(), 1),
             Tk::Rpar,
             Tk::LBrace,
-            Tk::Return,
+            Tk::Return(2),
             Tk::Identifier("a".into(), 2),
             Tk::Sub,
             Tk::Identifier("b".into(), 2),
@@ -4034,6 +4123,17 @@ mod tests {
             semantic_pass.resolve(stt);
         }
         println!("\nSTATE: {:?}\n", inter.locals);
+        /*
+         * we are careful to not run the interpreter if any parse errors
+         * are encountered.
+         * That check runs before the resolver so that we don’t try to
+         * resolve syntactically invalid code.
+         *
+         * But we also need to skip the interpreter if
+         * there are resolution errors, so we add another check.
+         */
+        // Stop if there was a resolution error.
+        // if (hadError) return;
         inter.eval(statements);
 
         println!("\n{:?}", inter.current_function_call);
