@@ -119,6 +119,7 @@ pub enum V {
     F64(f64),
     String(String),
     Bool(bool),
+    Row(Box<RowObject>),
 }
 
 impl std::hash::Hash for V {
@@ -154,6 +155,10 @@ impl std::hash::Hash for V {
                 state.write_u8(7);
                 val.hash(state);
             }
+            V::Row(obj) => {
+                state.write_u8(8);
+                obj.hash(state);
+            }
         }
     }
 }
@@ -171,6 +176,7 @@ impl PartialEq for V {
             (F64(a), F64(b)) => a == b,
             (String(a), String(b)) => a == b,
             (Bool(a), Bool(b)) => a == b,
+            (Row(a), Row(b)) => a == b,
             _ => false,
         }
     }
@@ -239,6 +245,7 @@ impl fmt::Display for V {
             V::F64(val) => write!(f, "{}", val)?,
             V::String(val) => write!(f, "{}", val)?,
             V::Bool(val) => write!(f, "{}", val)?,
+            V::Row(obj) => write!(f, "{}", obj)?,
         }
         Ok(())
     }
@@ -412,6 +419,13 @@ impl fmt::Display for Expr {
 #[derive(Debug, PartialEq, Clone)]
 enum Statement {
     None(String),
+    Row {
+        name: Tk,
+        //? Expr.Variable
+        // parentRow: Expr,
+        //? Stmt.Function
+        columns: Vec<Statement>,
+    },
     Expr(Expr),
     /*
      * This means every Lox function must return something,
@@ -472,8 +486,32 @@ enum Statement {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct RowObject {
+    name: Tk,
+}
+
+impl RowObject {
+    fn new(name: Tk) -> Self {
+        Self { name }
+    }
+}
+
+impl std::hash::Hash for RowObject {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
+}
+
+impl fmt::Display for RowObject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<row {}>", String::from(self.name.clone()))?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionObject {
-    //* Stmt.Function
+    //? Stmt.Function
     declaration: Statement,
 }
 
@@ -677,9 +715,10 @@ where
  */
 
 #[derive(Debug, Clone, PartialEq)]
-enum FunctionType {
+enum FunType {
     None,
     Function,
+    Column,
 }
 
 type LocalBlockScope = HashMap<String, bool>;
@@ -706,7 +745,7 @@ struct Resolver<'a> {
      * index instead of using a map.
      */
     scopes: Vec<LocalBlockScope>,
-    current_function_type: FunctionType,
+    current_function_type: FunType,
     interpreter: &'a mut Interpreter,
 }
 
@@ -716,7 +755,7 @@ impl<'a> Resolver<'a> {
         Self {
             scopes: vec![],
             interpreter,
-            current_function_type: FunctionType::None,
+            current_function_type: FunType::None,
         }
     }
 
@@ -866,11 +905,7 @@ impl<'a> Resolver<'a> {
      * It creates a new scope for the body and then binds variables
      * for each of the function’s parameters.
      */
-    fn resolve_function_declaration(
-        &mut self,
-        function_declaration: Statement,
-        kind: FunctionType,
-    ) {
+    fn resolve_function_declaration(&mut self, function_declaration: Statement, kind: FunType) {
         if let Statement::FunctionDeclaration {
             name: _,
             parameters,
@@ -1023,6 +1058,18 @@ impl ResolutionPass<Statement> for Resolver<'_> {
      */
     fn resolve(&mut self, val: Statement) {
         match val.clone() {
+            Statement::Row {
+                name,
+                // parentRow,
+                columns: _,
+            } => {
+                /*
+                 * It’s not common to declare a class as a local variable,
+                 * but Lox permits it, so we need to handle it correctly.
+                 */
+                self.declare_variable(name.clone());
+                self.define_variable(name);
+            }
             /*
              * A block statement introduces a new scope for the statements it contains.
              */
@@ -1053,7 +1100,7 @@ impl ResolutionPass<Statement> for Resolver<'_> {
             } => {
                 self.declare_variable(name.clone());
                 self.define_variable(name);
-                self.resolve_function_declaration(val, FunctionType::Function);
+                self.resolve_function_declaration(val, FunType::Function);
             }
             /*
              * A variable declaration adds a new variable to the current scope.
@@ -1113,7 +1160,7 @@ impl ResolutionPass<Statement> for Resolver<'_> {
              * Same deal for return.
              */
             Statement::Return { keyword, value } => {
-                if self.current_function_type == FunctionType::None {
+                if self.current_function_type == FunType::None {
                     // report_err(stmt.keyword, "Can't return from top-level code.");
                     //todo: use lox::error_error instead of panic
                     /*
@@ -1277,6 +1324,17 @@ impl Interpreter {
     fn eval_statement(&mut self, state: Statement) -> RValue {
         // println!("{:?}", state);
         match state {
+            Statement::Row {
+                name,
+                // parentRow,
+                columns: _,
+            } => {
+                self.define_declaration(name.clone(), V::Done);
+                let row = V::Row(Box::new(RowObject::new(name.clone())));
+                //? por que no lo definimos en seguida❓
+                self.assign_variable(name, row, Expr::None)?;
+                Ok(V::Done)
+            }
             Statement::Return { keyword: _, value } => {
                 let evaluated_value = self.eval_expr(value)?;
                 self.results.push(("ret".into(), evaluated_value.clone()));
@@ -1897,10 +1955,6 @@ pub enum RE {
     WrongCallableArity(Tk, usize, usize),
 }
 
-enum Kind {
-    Function,
-}
-
 use std::result::Result as StdResult;
 
 // use env_01_recursive::Env;
@@ -1948,28 +2002,23 @@ impl Parser {
         self.prev_token = self.tokens[self.current_position - 1].clone();
         println!("tk: {:?}", self.current_token);
     }
+
     /*
      * GRAMAR:
      *
      * program        → declaration* EOF ;
      *
-     * declaration    → function Declaration
-     *                  | variable Declaration
+     * declaration    → | class
+     *                  | function
+     *                  | variable
      *                  | statement ;
      *
-     * statement      → exprStmt
-     *                  | ifStmt
-     *                  | printStmt
-     *                  | whileStmt
+     * statement      → | expr
+     *                  | if
+     *                  | print
+     *                  | while
      *                  | block ;
-     *
-     * exprStmt       → expression ";"
-     * ifStmt         → "if" "(" expression ")" statement ( "else" statement )? ;
-     * printStmt      → "print" expression ";"
-     * whileStmt      → "while" "(" expression ")" statement ;
-     * block          → "{" declaration* "}" ;
      */
-
     fn parse(&mut self) -> Vec<Statement> {
         /*
          * Now that our grammar has the correct
@@ -1997,18 +2046,85 @@ impl Parser {
         result
     }
 
-    //* declaration    → function Declaration
-    //*                  | variable Declaration
-    //*                  | statement ;
+    //* declaration    → class | function | variable | statement ;
     fn declaration_or_statement(&mut self) -> RStatement {
         let result = match self.current_token {
-            Tk::Fn => self.function_declaration(Kind::Function)?,
+            Tk::Class => self.class_declaration()?,
+            Tk::Fn => self.function_declaration(FunType::Function)?,
             Tk::Var => self.variable_declaration()?,
             _ => self.statement()?,
         };
 
         Ok(result)
     }
+
+    // * classDecl      → "class" IDENTIFIER "{" function* "}" ;
+    /*
+     * In plain English, a class declaration is the class keyword,
+     * followed by the class’s name, then a curly-braced body.
+     * Inside that body is a list of method declarations.
+     * Unlike function declarations, methods don’t have a leading fun keyword.
+     * Each method is a name, parameter list, and body.
+     */
+    fn class_declaration(&mut self) -> RStatement {
+        // Token name = consume(IDENTIFIER, "Expect class name.");
+        self.consume_token();
+        let name = if let Tk::Identifier(_, _) = self.current_token {
+            self.current_token.clone()
+        } else {
+            // todo: test err❗
+            report_err(
+                Tk::Identifier("class_name".into(), 0),
+                self.current_token.clone(),
+                "Expect class name.",
+            );
+            self.current_token.clone()
+        };
+        // consume(LEFT_BRACE, "Expect '{' before class body.");
+        self.consume_token();
+        if self.current_token != Tk::LBrace {
+            // todo: test err❗
+            report_err(
+                Tk::LBrace,
+                self.current_token.clone(),
+                "Expect '{' before class body.",
+            );
+        }
+        // List<Stmt.Function> methods = new ArrayList<>();
+        let mut columns = vec![];
+        // while (!check(RIGHT_BRACE) && !isAtEnd()) {
+        //   methods.add(function("method"));
+        // }
+        //todo: refactor as while let ❓
+        /*
+         * Like we do in any open-ended loop in the parser,
+         * we also check for hitting the end of the file.
+         *
+         * it ensures the parser doesn’t get stuck in an infinite loop
+         * if the user has a syntax error and forgets to correctly end the class body.
+         */
+        // self.consume_token();
+        println!("{:?}", self.current_token);
+        while self.current_token != Tk::RBrace && self.current_token != Tk::End {
+            let fun = self.function_declaration(FunType::Column)?;
+            println!("{:?}", fun);
+            columns.push(fun);
+            // self.consume_token();
+        }
+        println!("{:?}", self.current_token);
+        // consume(RIGHT_BRACE, "Expect '}' after class body.");
+        if self.current_token != Tk::RBrace {
+            report_err(
+                Tk::RBrace,
+                self.current_token.clone(),
+                "Expect '}' after class body.",
+            );
+        }
+        self.consume_token();
+        // return new Stmt.Class(name, methods);
+        Ok(Statement::Row { name, columns })
+    }
+
     // * funDecl        → "fun" function ;
     //? It’s like the earlier arguments rule,
     //? except that each parameter is an identifier, not an expression.
@@ -2022,9 +2138,11 @@ impl Parser {
      * When we get to classes, we’ll reuse that function rule for declaring methods.
      * Those look similar to function declarations, but aren’t preceded by fun.
      */
-    fn function_declaration(&mut self, kind: Kind) -> RStatement {
+    fn function_declaration(&mut self, kind: FunType) -> RStatement {
         let kind_string = match kind {
-            Kind::Function => "function",
+            FunType::Column => "column",
+            FunType::Function => "function",
+            FunType::None => unreachable!("not a function type!"),
         };
         self.consume_token();
         let name = if let Tk::Identifier(_, _) = self.current_token {
@@ -3017,6 +3135,55 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    // todo: ❗ wtf como que pasó a la primera OWO
+    // todo: ❗ no hay nada :😏
+    fn test_parse_a_class() {
+        //? class DevonshireCream {
+        //?     serveOn() {
+        //?       return 42;
+        //?     }
+        //? }
+        //?   print DevonshireCream;
+        // * Prints "DevonshireCream".
+        let tokens = vec![
+            Tk::Class,
+            Tk::Identifier("DevonshireCream".into(), 1),
+            Tk::LBrace,
+            //?     serveOn() {
+            Tk::Identifier("serveOn".into(), 2),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::LBrace,
+            //?       return 42;
+            Tk::Return(3),
+            Tk::Num(42),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::RBrace,
+            //?   print DevonshireCream;
+            Tk::Print,
+            Tk::Identifier("DevonshireCream".into(), 6),
+            Tk::Semi,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![("a".into(), V::I32(22))]);
+        let inter = test_run(environment, statements);
+
+        // todo: assert stdout
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        assert_eq!(
+            iter.next_back().unwrap(),
+            &(
+                "print".into(),
+                V::Row(Box::new(RowObject {
+                    name: Tk::Identifier("DevonshireCream".into(), 1)
+                }))
+            )
+        );
+    }
 
     #[test]
     #[should_panic = "Return(1), Can't return from top-level code."]
