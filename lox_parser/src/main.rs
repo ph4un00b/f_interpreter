@@ -113,13 +113,14 @@ enum Expr {
 pub enum V {
     Done,
     Return(Box<V>),
+    Instance(Box<Instance>),
+    Row(Box<RowObject>),
     Callable(Box<FunctionObject>),
     NativeCallable(String),
     I32(i32),
     F64(f64),
     String(String),
     Bool(bool),
-    Row(Box<RowObject>),
 }
 
 impl std::hash::Hash for V {
@@ -159,6 +160,10 @@ impl std::hash::Hash for V {
                 state.write_u8(8);
                 obj.hash(state);
             }
+            V::Instance(obj) => {
+                state.write_u8(9);
+                obj.hash(state);
+            }
         }
     }
 }
@@ -177,6 +182,7 @@ impl PartialEq for V {
             (String(a), String(b)) => a == b,
             (Bool(a), Bool(b)) => a == b,
             (Row(a), Row(b)) => a == b,
+            (Instance(a), Instance(b)) => a == b,
             _ => false,
         }
     }
@@ -184,28 +190,9 @@ impl PartialEq for V {
 
 impl Eq for V {}
 
-trait Arity {
-    fn arity(&self) -> usize;
-}
-
-impl Arity for V {
-    fn arity(&self) -> usize {
-        match self {
-            V::NativeCallable(fn_name) => match fn_name.as_str() {
-                //todo: maybe use an enum to have compile time checks ❓
-                "clock" => 0,
-                _ => panic!(),
-            },
-            _ => {
-                // Handle other variants if needed
-                // For example, return a default arity value or throw an error
-                panic!()
-            }
-        }
-    }
-}
 trait FnCallable {
     fn call(&mut self, interpreter: &mut Interpreter, arguments: Vec<V>) -> RValue;
+    fn arity(&self) -> usize;
 }
 
 impl FnCallable for V {
@@ -228,6 +215,21 @@ impl FnCallable for V {
             }
         }
     }
+
+    fn arity(&self) -> usize {
+        match self {
+            V::NativeCallable(fn_name) => match fn_name.as_str() {
+                //todo: maybe use an enum to have compile time checks ❓
+                "clock" => 0,
+                _ => panic!(),
+            },
+            _ => {
+                // Handle other variants if needed
+                // For example, return a default arity value or throw an error
+                panic!()
+            }
+        }
+    }
 }
 
 impl fmt::Display for V {
@@ -237,7 +239,7 @@ impl fmt::Display for V {
             V::Return(val) => write!(f, "ret {:?}", val)?,
             V::Callable(function) => write!(f, "{}", function)?,
             V::NativeCallable(fn_name) => match fn_name.as_str() {
-                "clock" => write!(f, "#<native-{}>", fn_name)?,
+                "clock" => write!(f, "<native {}>", fn_name)?,
                 _ => write!(f, "#{}", fn_name)?,
             },
             // V::Callable(id) => write!(f, "#{}", id)?,
@@ -246,6 +248,7 @@ impl fmt::Display for V {
             V::String(val) => write!(f, "{}", val)?,
             V::Bool(val) => write!(f, "{}", val)?,
             V::Row(obj) => write!(f, "{}", obj)?,
+            V::Instance(obj) => write!(f, "{}", obj)?,
         }
         Ok(())
     }
@@ -486,8 +489,43 @@ enum Statement {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Instance {
+    row: RowObject,
+}
+
+impl std::hash::Hash for Instance {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.row.hash(state);
+    }
+}
+
+impl fmt::Display for Instance {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<{} instance>", String::from(self.row.name.clone()))?;
+        Ok(())
+    }
+}
+
+impl Instance {
+    fn new(row: RowObject) -> Self {
+        Self { row }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct RowObject {
     name: Tk,
+}
+
+impl FnCallable for RowObject {
+    fn call(&mut self, _interpreter: &mut Interpreter, _arguments: Vec<V>) -> RValue {
+        let instance = Instance::new(self.clone());
+        Ok(V::Instance(Box::new(instance)))
+    }
+
+    fn arity(&self) -> usize {
+        0
+    }
 }
 
 impl RowObject {
@@ -538,26 +576,6 @@ impl fmt::Display for FunctionObject {
                 parameters: _,
                 body: _,
             } => Ok(write!(f, "<fn {}>", String::from(name))?),
-            _ => unreachable!("only fn declaration!"),
-        }
-    }
-}
-
-impl Arity for FunctionObject {
-    fn arity(&self) -> usize {
-        // todo: look for refactors❗
-        /*
-         * Note when we bind the parameters,
-         * we assume the parameter and argument lists have the same length.
-         * This is safe because CallExpr() checks the arity before calling call().
-         * It relies on the function reporting its arity to do that.
-         */
-        match self.declaration.clone() {
-            Statement::FunctionDeclaration {
-                name: _,
-                parameters,
-                body: _,
-            } => parameters.len(),
             _ => unreachable!("only fn declaration!"),
         }
     }
@@ -684,6 +702,24 @@ impl FnCallable for FunctionObject {
         match returned {
             V::Return(value) => Ok(*value),
             _ => Ok(V::Done),
+        }
+    }
+
+    fn arity(&self) -> usize {
+        // todo: look for refactors❗
+        /*
+         * Note when we bind the parameters,
+         * we assume the parameter and argument lists have the same length.
+         * This is safe because CallExpr() checks the arity before calling call().
+         * It relies on the function reporting its arity to do that.
+         */
+        match self.declaration.clone() {
+            Statement::FunctionDeclaration {
+                name: _,
+                parameters,
+                body: _,
+            } => parameters.len(),
+            _ => unreachable!("only fn declaration!"),
         }
     }
 }
@@ -1571,9 +1607,10 @@ impl Interpreter {
                  * Python is stricter. It raises a runtime error if the
                  * argument list is too short or too long.
                  */
-                // todo: test err❗
-                let mut function = match function_value {
+                // todo: do it in a generic way❗❓
+                let mut function: Box<dyn FnCallable> = match function_value {
                     V::Callable(function) => function,
+                    V::Row(function) => function,
                     // V::NativeCallable(_) => self.call(function_value, argument_values),
                     /*
                      * We still throw an exception,
@@ -1591,7 +1628,7 @@ impl Interpreter {
                         argument_list.len(),
                     ));
                 }
-                println!("\n WiLL CALL {}::args{argument_list:?}", function);
+                // println!("\n WiLL CALL {}::args{argument_list:?}", function);
                 let val = function.call(self, argument_list)?;
                 //? siempre deberia de haber un closure env
                 Ok(val)
@@ -2103,14 +2140,18 @@ impl Parser {
          * it ensures the parser doesn’t get stuck in an infinite loop
          * if the user has a syntax error and forgets to correctly end the class body.
          */
-        // self.consume_token();
-        println!("{:?}", self.current_token);
         while self.current_token != Tk::RBrace && self.current_token != Tk::End {
-            let fun = self.function_declaration(FunType::Column)?;
-            println!("{:?}", fun);
-            columns.push(fun);
-            // self.consume_token();
+            let function = self.function_declaration(FunType::Column)?;
+            if let Statement::None(_) = function {
+                //? Statement::None(_)
+                //? this is for the special case:
+                //? class Bagel {}
+                break;
+            } else {
+                columns.push(function);
+            }
         }
+
         println!("{:?}", self.current_token);
         // consume(RIGHT_BRACE, "Expect '}' after class body.");
         if self.current_token != Tk::RBrace {
@@ -2139,12 +2180,17 @@ impl Parser {
      * Those look similar to function declarations, but aren’t preceded by fun.
      */
     fn function_declaration(&mut self, kind: FunType) -> RStatement {
+        self.consume_token();
+        if self.current_token == Tk::RBrace {
+            return Ok(Statement::None("non-function".into()));
+        }
+
         let kind_string = match kind {
             FunType::Column => "column",
             FunType::Function => "function",
             FunType::None => unreachable!("not a function type!"),
         };
-        self.consume_token();
+
         let name = if let Tk::Identifier(_, _) = self.current_token {
             self.current_token.clone()
         } else {
@@ -3137,8 +3183,50 @@ mod tests {
     use super::*;
 
     #[test]
-    // todo: ❗ wtf como que pasó a la primera OWO
-    // todo: ❗ no hay nada :😏
+    fn test_class_instance() {
+        //? class Bagel {}
+        //? var bagel = Bagel();
+        //? print bagel;
+        //* Prints "Bagel instance".
+        let tokens = vec![
+            //? class Bagel {}
+            Tk::Class,
+            Tk::Identifier("Bagel".into(), 1),
+            Tk::LBrace,
+            Tk::RBrace,
+            //? var bagel = Bagel();
+            Tk::Var,
+            Tk::Identifier("bagel".into(), 2),
+            Tk::Assign,
+            Tk::Identifier("Bagel".into(), 2),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Semi,
+            //? print bagel;
+            Tk::Print,
+            Tk::Identifier("bagel".into(), 3),
+            Tk::Semi,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![]);
+        let inter = test_run(environment, statements);
+
+        // todo: assert stdout
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        assert_eq!(
+            iter.next_back().unwrap(),
+            &(
+                "print".into(),
+                V::Instance(Box::new(Instance::new(RowObject::new(Tk::Identifier(
+                    "Bagel".into(),
+                    1
+                )))))
+            )
+        );
+    }
+
+    #[test]
     fn test_parse_a_class() {
         //? class DevonshireCream {
         //?     serveOn() {
@@ -3168,7 +3256,7 @@ mod tests {
             Tk::Semi,
             Tk::End,
         ];
-        let (statements, environment) = test_setup(tokens, vec![("a".into(), V::I32(22))]);
+        let (statements, environment) = test_setup(tokens, vec![]);
         let inter = test_run(environment, statements);
 
         // todo: assert stdout
