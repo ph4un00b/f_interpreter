@@ -107,6 +107,11 @@ enum Expr {
      */
     Assign(Tk, Box<Expr>),
     GetProp(Box<Expr>, Tk),
+    SetProp {
+        expr: Box<Expr>,
+        name: Tk,
+        value: Box<Expr>,
+    },
     None,
 }
 
@@ -415,7 +420,8 @@ impl fmt::Display for Expr {
                 paren: _,
                 arguments,
             } => write!(f, "{}::(arguments{:?})", callee, arguments)?,
-            Expr::GetProp(obj, name) => write!(f, "{}GET::{:?}", obj, name)?,
+            Expr::GetProp(obj, name) => write!(f, "< {} GET {:?}", obj, name)?,
+            Expr::SetProp { expr, name, value } => write!(f, "> {expr} SET {name:?} = {value}")?,
         }
 
         Ok(())
@@ -526,6 +532,12 @@ impl Instance {
             row,
             fields: HashMap::new(),
         }
+    }
+
+    fn mut_prop(&mut self, name: Tk, value: V) {
+        let key = String::from(name.clone());
+        // self.fields.entry(key).and_modify(|val| *val = value);
+        self.fields.insert(key, value);
     }
 
     fn get_prop(self, name: Tk) -> RValue {
@@ -1038,6 +1050,21 @@ impl<'a> Resolver<'a> {
 impl ResolutionPass<Expr> for Resolver<'_> {
     fn resolve(&mut self, val: Expr) {
         match val.clone() {
+            /*
+             * Again, like Expr.Get, the property itself is dynamically evaluated,
+             * so there’s nothing to resolve there. All we need to do is recurse
+             * into the two sub-expressions of Expr.Set,
+             * the object whose property is being set,
+             * and the value it’s being set to.
+             */
+            Expr::SetProp {
+                expr,
+                name: _,
+                value,
+            } => {
+                self.resolve(*value);
+                self.resolve(*expr);
+            }
             /*
              * Since properties are looked up dynamically,
              * they don’t get resolved. During resolution,
@@ -1601,6 +1628,28 @@ impl Interpreter {
     fn eval_expr(&mut self, expr: Expr) -> RValue {
         // println!("{:?}", expr);
         match expr.clone() {
+            Expr::SetProp { expr, name, value } => {
+                /*
+                 * This is another semantic edge case. There are three distinct operations:
+                 *
+                 * - Evaluate the object.
+                 * - Raise a runtime error if it’s not an instance of a class.
+                 * - Evaluate the value.
+                 *
+                 * The order that those are performed in could be user visible,
+                 * which means we need to carefully specify it and ensure our
+                 * implementations do these in the same order.
+                 */
+                let object = self.eval_expr(*expr)?;
+                if let V::Instance(mut obj) = object {
+                    let val = self.eval_expr(*value)?;
+                    obj.mut_prop(name, val.clone());
+                    Ok(val)
+                } else {
+                    //*  "Only instances have fields."
+                    Err(RE::NotInstance(name))
+                }
+            }
             Expr::GetProp(obj, prop_name) => {
                 /*
                  * You can literally see that property dispatch
@@ -2766,13 +2815,20 @@ impl Parser {
         self.assignment()
     }
 
-    //* assignment → IDENTIFIER "=" assignment | logic_or ;
+    //* assignment → ( call "." )? IDENTIFIER "=" assignment | logic_or ;
     /*
+     * Unlike getters, setters don’t chain.❗
+     *
+     * However, the reference to call allows any high-precedence expression
+     * before the last dot, including any number of getters, as in:
+     *
+     * 🎈 breakfast.omelette.filling.meat = ham
+     * Note here that only the last part, the .meat is the setter.
+     * The .omelette and .filling parts are both get expressions.
+     *
      * Instead of falling back to equality, assignment now cascades to
      * logic_or. The two new rules, logic_or and logic_and, are
      * similar to other binary operators.
-     * Then logic_and calls out to equality for its operands,
-     * and we chain back to the rest of the expression rules.
      *
      * The syntax doesn’t care that they short-circuit.
      * That’s a semantic concern.
@@ -2826,14 +2882,26 @@ impl Parser {
             //* The left-hand side of that assignment could also work as a valid expression.
             //? newPoint(x + 2, 0).y;
             //* The first example sets the field, the second gets it.
-            let right = self.assignment()?;
+            let right_value = self.assignment()?;
 
-            if let Expr::Let(let_token) = left {
+            if let Expr::Let(identifier) = left {
                 /*
                  * If we find an =, we parse the right-hand side and then
                  * wrap it all up in an assignment expression tree node.
                  */
-                return Ok(Expr::Assign(let_token, Box::new(right)));
+                return Ok(Expr::Assign(identifier, Box::new(right_value)));
+            } else if let Expr::GetProp(get_expr, get_prop_name) = left {
+                /*
+                 * Instead, the trick we do is parse the left-hand side as a normal expression.
+                 * Then, when we stumble onto the equal sign after it,
+                 * we take the expression we already parsed and transform it
+                 * into the correct syntax tree node for the assignment.
+                 */
+                return Ok(Expr::SetProp {
+                    expr: get_expr,
+                    name: get_prop_name,
+                    value: Box::new(right_value),
+                });
             } else {
                 /*
                  * We report an error if the left-hand side isn’t a valid
