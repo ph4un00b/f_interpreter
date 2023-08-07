@@ -106,6 +106,7 @@ enum Expr {
      * it may take an unbounded number of tokens of lookahead to find the =.
      */
     Assign(Tk, Box<Expr>),
+    GetProp(Box<Expr>, Tk),
     None,
 }
 
@@ -286,6 +287,7 @@ impl From<Tk> for String {
             Tk::LBrace => "{".to_string(),
             Tk::RBrace => "}".to_string(),
             Tk::Comma => ",".to_string(),
+            Tk::Dot => ".".to_string(),
         }
     }
 }
@@ -323,6 +325,7 @@ pub enum Tk {
     Else,
     Or,
     And,
+    Dot,
 }
 
 trait ToLiteral<TValue>
@@ -412,6 +415,7 @@ impl fmt::Display for Expr {
                 paren: _,
                 arguments,
             } => write!(f, "{}::(arguments{:?})", callee, arguments)?,
+            Expr::GetProp(obj, name) => write!(f, "{}GET::{:?}", obj, name)?,
         }
 
         Ok(())
@@ -491,6 +495,16 @@ enum Statement {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Instance {
     row: RowObject,
+    /*
+     * Doing a hash table lookup for every field access
+     * is fast enough for many language implementations,
+     * but not ideal. High performance VMs for languages
+     * like JavaScript use sophisticated optimizations like
+     * “hidden classes” to avoid that overhead.
+     *
+     * @see https://richardartoul.github.io/jekyll/update/2015/04/26/hidden-classes.html
+     */
+    fields: HashMap<String, V>,
 }
 
 impl std::hash::Hash for Instance {
@@ -508,7 +522,40 @@ impl fmt::Display for Instance {
 
 impl Instance {
     fn new(row: RowObject) -> Self {
-        Self { row }
+        Self {
+            row,
+            fields: HashMap::new(),
+        }
+    }
+
+    fn get_prop(self, name: Tk) -> RValue {
+        let key = String::from(name.clone());
+        /*
+         * Note how I switched from talking about “properties”
+         * to “fields”. There is a subtle difference between the two.
+         * Fields are named bits of state stored directly
+         * in an instance. Properties are the named, uh,
+         * things, that a get expression may return.
+         *
+         * Every field is a property, but as we’ll see later,
+         * not every property is a field.
+         */
+        if self.fields.contains_key(&key) {
+            //todo: is this clone ok❓
+            Ok(self.fields.get(&key).unwrap().clone())
+        } else {
+            /*
+             * An interesting edge case we need to handle
+             * is what happens if the instance doesn’t have
+             * a property with the given name. We could
+             * silently return some dummy value like nil,
+             * but my experience with languages like JavaScript
+             * is that this behavior masks bugs more often than
+             * it does anything useful. Instead, we’ll make it a
+             * runtime error.
+             */
+            Err(RE::UndefinedProperty(name.clone()))
+        }
     }
 }
 
@@ -992,6 +1039,17 @@ impl ResolutionPass<Expr> for Resolver<'_> {
     fn resolve(&mut self, val: Expr) {
         match val.clone() {
             /*
+             * Since properties are looked up dynamically,
+             * they don’t get resolved. During resolution,
+             * we recurse only into the expression to the left
+             * of the dot.
+             *
+             * The actual property access happens
+             * in the interpreter.
+             *
+             */
+            Expr::GetProp(obj, _) => self.resolve(*obj),
+            /*
              * Variable declarations—and function declarations,
              * which we’ll get to—write to the scope maps.
              * Those maps are read when we resolve variable expressions.
@@ -1313,6 +1371,8 @@ impl Interpreter {
                     RE::UndefinedVariable(v) => todo!("undefined variable {}", v),
                     RE::NotCallableValue(_) => todo!(),
                     RE::WrongCallableArity(_, _, _) => todo!(),
+                    RE::NotInstance(_) => todo!(),
+                    RE::UndefinedProperty(_) => todo!(),
                 },
             }
         }
@@ -1541,6 +1601,26 @@ impl Interpreter {
     fn eval_expr(&mut self, expr: Expr) -> RValue {
         // println!("{:?}", expr);
         match expr.clone() {
+            Expr::GetProp(obj, prop_name) => {
+                /*
+                 * You can literally see that property dispatch
+                 * in Lox is dynamic since we don’t process
+                 * the property name during the static resolution pass.
+                 */
+                let object = self.eval_expr(*obj)?;
+                /*
+                 * First, we evaluate the expression whose property
+                 * is being accessed. In Lox, only instances of
+                 * classes have properties.
+                 * If the object is some other type like a number,
+                 * invoking a getter on it is a runtime error.
+                 */
+                if let V::Instance(obj) = object {
+                    obj.get_prop(prop_name)
+                } else {
+                    Err(RE::NotInstance(prop_name))
+                }
+            }
             Expr::FunctionCall {
                 callee,
                 paren,
@@ -1990,6 +2070,8 @@ pub enum RE {
     UndefinedVariable(String),
     NotCallableValue(Tk),
     WrongCallableArity(Tk, usize, usize),
+    NotInstance(Tk),
+    UndefinedProperty(Tk),
 }
 
 use std::result::Result as StdResult;
@@ -2880,7 +2962,13 @@ impl Parser {
         self.call()
     }
 
-    // * call       → primary ( "(" arguments? ")" )* ;
+    // * call       → primary ( "(" arguments? ")" | "." IDENTIFIER )* ;
+    /*
+     * After a primary expression, we allow a series of any mixture of
+     * parenthesized calls and dotted property accesses.
+     * “Property access” is a mouthful, so from here on out,
+     * we’ll call these “get expressions”.
+     */
     // * arguments  → expression ( "," expression )* ;
     /*
      * The rule uses * to allow matching a series of calls
@@ -2897,6 +2985,12 @@ impl Parser {
          * instead of the silly while (true) and break. Don’t worry,
          * it will make sense when we expand the parser later
          * to handle properties on objects.
+         *
+         * loop there corresponds to the * in the grammar rule
+         * . . . | "." IDENTIFIER )* <-
+         *
+         * example:
+         * egg.scramble(3).with(cheddar)
          */
         loop {
             // self.consume_token();
@@ -2916,6 +3010,20 @@ impl Parser {
                  * we loop to see if the result is itself called.
                  */
                 expr = self.finish_call(expr)?;
+            } else if self.current_token == Tk::Dot {
+                self.consume_token();
+                let name = if let Tk::Identifier(_, _) = self.current_token {
+                    self.current_token.clone()
+                } else {
+                    // todo: test err❗
+                    report_err(
+                        Tk::Identifier("get property".into(), 0),
+                        self.current_token.clone(),
+                        "Expect property name after '.'.",
+                    );
+                    self.current_token.clone()
+                };
+                expr = Expr::GetProp(Box::new(expr), name);
             } else {
                 break;
             }
