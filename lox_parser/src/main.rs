@@ -555,6 +555,14 @@ impl Instance {
         if self.fields.contains_key(&key) {
             //todo: is this clone ok❓
             Ok(self.fields.get(&key).unwrap().clone())
+        } else if self.row.behaviors.contains_key(&key) {
+            /*
+             * Looking for a field first implies that fields shadow methods,
+             * a subtle but important semantic point.
+             */
+            // todo: test shadowing❗
+            let function = self.row.behaviors.get(&key).unwrap().clone();
+            Ok(V::Callable(Box::new(function)))
         } else {
             /*
              * An interesting edge case we need to handle
@@ -574,6 +582,13 @@ impl Instance {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RowObject {
     name: Tk,
+    /*
+     * Where an instance stores state, the class stores behavior.
+     * LoxInstance has its map of fields, and LoxClass gets a map of methods.
+     * Even though methods are owned by the class,
+     * they are still accessed through instances of that class.
+     */
+    behaviors: HashMap<String, FunctionObject>,
 }
 
 impl FnCallable for RowObject {
@@ -588,8 +603,8 @@ impl FnCallable for RowObject {
 }
 
 impl RowObject {
-    fn new(name: Tk) -> Self {
-        Self { name }
+    fn new(name: Tk, behaviors: HashMap<String, FunctionObject>) -> Self {
+        Self { name, behaviors }
     }
 }
 
@@ -1000,12 +1015,12 @@ impl<'a> Resolver<'a> {
      * It creates a new scope for the body and then binds variables
      * for each of the function’s parameters.
      */
-    fn resolve_function_declaration(&mut self, function_declaration: Statement, kind: FunType) {
+    fn resolve_function_declaration(&mut self, declaration: Statement, kind: FunType) {
         if let Statement::FunctionDeclaration {
             name: _,
             parameters,
             body,
-        } = function_declaration
+        } = declaration
         {
             // * We stash the previous value of the field in a local variable first.
             // * Remember, Lox has local functions, so you can nest function declarations
@@ -1182,7 +1197,7 @@ impl ResolutionPass<Statement> for Resolver<'_> {
             Statement::Row {
                 name,
                 // parentRow,
-                columns: _,
+                columns,
             } => {
                 /*
                  * It’s not common to declare a class as a local variable,
@@ -1190,6 +1205,16 @@ impl ResolutionPass<Statement> for Resolver<'_> {
                  */
                 self.declare_variable(name.clone());
                 self.define_variable(name);
+                //? methods aka column
+                /*
+                 * Storing the function type in a local variable is pointless right now,
+                 * but we’ll expand this code before too long and it will make more sense.
+                 *
+                 * "FunType::Column", That’s going to be important when we resolve this expressions.
+                 */
+                for col in columns {
+                    self.resolve_function_declaration(col, FunType::Column)
+                }
             }
             /*
              * A block statement introduces a new scope for the statements it contains.
@@ -1450,11 +1475,32 @@ impl Interpreter {
             Statement::Row {
                 name,
                 // parentRow,
-                columns: _,
+                columns,
             } => {
                 self.define_declaration(name.clone(), V::Done);
-                let row = V::Row(Box::new(RowObject::new(name.clone())));
                 //? por que no lo definimos en seguida❓
+                //? por que vamos a definir los métodos❗
+                let mut behaviors = HashMap::new();
+                for column in columns {
+                    if let Statement::FunctionDeclaration {
+                        name,
+                        parameters: _,
+                        body: _,
+                    } = column.clone()
+                    {
+                        /*
+                         * When we interpret a class declaration statement, we turn the syntactic
+                         * representation of the class—its AST node—into its runtime representation.
+                         * Now, we need to do that for the methods contained in the class as well.
+                         * Each method declaration blossoms into a LoxFunction object.
+                         */
+                        let function = FunctionObject::new(column);
+                        behaviors.insert(String::from(name), function);
+                    } else {
+                        unreachable!("not a function declaration!")
+                    }
+                }
+                let row = V::Row(Box::new(RowObject::new(name.clone(), behaviors)));
                 self.assign_variable(name, row, Expr::None)?;
                 Ok(V::Done)
             }
@@ -3091,7 +3137,9 @@ impl Parser {
                     );
                     self.current_token.clone()
                 };
+                println!("{}", expr);
                 expr = Expr::GetProp(Box::new(expr), name);
+                self.consume_token();
             } else {
                 break;
             }
@@ -3359,6 +3407,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_class_methods() {
+        //? class Bagel {
+        //?     eat() {
+        //?       print 42;
+        //?     }
+        //? }
+
+        //? Bagel().eat();
+        //* Prints "Crunch crunch crunch!".
+        let tokens = vec![
+            //? class Bagel {
+            Tk::Class,
+            Tk::Identifier("Bagel".into(), 1),
+            Tk::LBrace,
+            //? eat() {
+            Tk::Identifier("eat".into(), 2),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::LBrace,
+            //?       print 42;
+            Tk::Print,
+            Tk::Num(42),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::RBrace,
+            //? Bagel().eat();
+            Tk::Identifier("Bagel".into(), 5),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Dot,
+            Tk::Identifier("eat".into(), 5),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Semi,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![]);
+        let inter = test_run(environment, statements);
+
+        // todo: assert stdout
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(42)));
+    }
+
+    #[test]
     fn test_class_instance() {
         //? class Bagel {}
         //? var bagel = Bagel();
@@ -3394,10 +3488,10 @@ mod tests {
             iter.next_back().unwrap(),
             &(
                 "print".into(),
-                V::Instance(Box::new(Instance::new(RowObject::new(Tk::Identifier(
-                    "Bagel".into(),
-                    1
-                )))))
+                V::Instance(Box::new(Instance::new(RowObject::new(
+                    Tk::Identifier("Bagel".into(), 1),
+                    HashMap::new()
+                ))))
             )
         );
     }
@@ -3438,12 +3532,26 @@ mod tests {
         // todo: assert stdout
         let mut iter = inter.results.iter();
         //todo: look for ordering in reverse ti match the logical output
+        let mut behaviors = HashMap::new();
+        behaviors.insert(
+            "serveOn".to_string(),
+            FunctionObject::new(Statement::FunctionDeclaration {
+                name: Tk::Identifier("serveOn".into(), 2),
+                parameters: vec![],
+                body: vec![Statement::Return {
+                    keyword: Tk::Return(3),
+                    value: Expr::Literal(V::I32(42)),
+                }],
+            }),
+        );
+
         assert_eq!(
             iter.next_back().unwrap(),
             &(
                 "print".into(),
                 V::Row(Box::new(RowObject {
-                    name: Tk::Identifier("DevonshireCream".into(), 1)
+                    name: Tk::Identifier("DevonshireCream".into(), 1),
+                    behaviors
                 }))
             )
         );
