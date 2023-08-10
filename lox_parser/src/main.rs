@@ -887,6 +887,12 @@ enum FnType {
     Column,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum RowType {
+    None,
+    Row,
+}
+
 type LocalBlockScope = HashMap<String, bool>;
 struct Resolver<'a> {
     /*
@@ -911,7 +917,16 @@ struct Resolver<'a> {
      * index instead of using a map.
      */
     scopes: Vec<LocalBlockScope>,
-    current_function_type: FnType,
+    current_fn_type: FnType,
+    /*
+     * Yes, it could be a Boolean. When we get to inheritance,
+     * it will get a third value, hence the enum right now.
+     * We also add a corresponding field, currentClass.
+     * Its value tells us if we are currently inside a
+     * class declaration while traversing the syntax tree.
+     * It starts out NONE which means we aren’t in one.
+     */
+    current_row_type: RowType,
     interpreter: &'a mut Interpreter,
 }
 
@@ -921,7 +936,8 @@ impl<'a> Resolver<'a> {
         Self {
             scopes: vec![],
             interpreter,
-            current_function_type: FnType::None,
+            current_fn_type: FnType::None,
+            current_row_type: RowType::None,
         }
     }
 
@@ -1084,8 +1100,8 @@ impl<'a> Resolver<'a> {
             // * arbitrarily deeply. We need to track not just that we’re in a function,
             // * but how many we’re in.
             // todo: check for a swap alternative❗
-            let enclosing_function = self.current_function_type.clone();
-            self.current_function_type = kind;
+            let enclosing_function = self.current_fn_type.clone();
+            self.current_fn_type = kind;
 
             self.begin_scope();
             for param in parameters {
@@ -1112,7 +1128,7 @@ impl<'a> Resolver<'a> {
              * When we’re done resolving
              * the function body, we restore the field to that value.
              */
-            self.current_function_type = enclosing_function;
+            self.current_fn_type = enclosing_function;
         } else {
             unreachable!("should be function_declaration")
         }
@@ -1122,7 +1138,17 @@ impl<'a> Resolver<'a> {
 impl ResolutionPass<Expr> for Resolver<'_> {
     fn resolve(&mut self, val: Expr) {
         match val.clone() {
-            Expr::This(keyword) => self.resolve_local_variable(val, keyword),
+            Expr::This(keyword) => {
+                if self.current_row_type == RowType::None {
+                    /*
+                     * That should help users use this correctly,
+                     * and it saves us from having to
+                     * handle misuse at runtime in the interpreter.
+                     */
+                    panic!("Can't use '{}' outside of a Row.", String::from(Tk::ThisTk));
+                }
+                self.resolve_local_variable(val, keyword)
+            }
             /*
              * Again, like Expr.Get, the property itself is dynamically evaluated,
              * so there’s nothing to resolve there. All we need to do is recurse
@@ -1258,6 +1284,17 @@ impl ResolutionPass<Statement> for Resolver<'_> {
                 columns,
             } => {
                 /*
+                 * As with currentFunction, we store the previous value of
+                 * the field in a local variable.
+                 *
+                 * This lets us piggyback onto the JVM to keep a stack of
+                 * currentClass values.
+                 * That way we don’t lose track of the previous value
+                 * if one class nests inside another.
+                 */
+                let enclosing_row = self.current_row_type.clone();
+                self.current_row_type = RowType::Row;
+                /*
                  * It’s not common to declare a class as a local variable,
                  * but Lox permits it, so we need to handle it correctly.
                  */
@@ -1289,6 +1326,11 @@ impl ResolutionPass<Statement> for Resolver<'_> {
                 }
 
                 self.end_scope();
+                /*
+                 * Once the methods have been resolved,
+                 * we “pop” that stack by restoring the old value.
+                 */
+                self.current_row_type = enclosing_row;
             }
             /*
              * A block statement introduces a new scope for the statements it contains.
@@ -1381,7 +1423,7 @@ impl ResolutionPass<Statement> for Resolver<'_> {
              * Same deal for return.
              */
             Statement::Return { keyword, value } => {
-                if self.current_function_type == FnType::None {
+                if self.current_fn_type == FnType::None {
                     // report_err(stmt.keyword, "Can't return from top-level code.");
                     //todo: use lox::error_error instead of panic
                     /*
@@ -3556,6 +3598,36 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /*
+     * There is no instance for this to point to if you’re not in a method.
+     * We could give it some default value like nil or make it a runtime error,
+     * but the user has clearly made a mistake.
+     * The sooner they find and fix that mistake, the happier they’ll be.
+     *
+     * Our resolution pass is a fine place to detect this error statically.
+     * It already detects return statements outside of functions.
+     * We’ll do something similar for this.
+     */
+    #[test]
+    #[should_panic = "Can't use 'SELF' outside of a Row."]
+    fn test_invalid_this() {
+        let tokens = vec![
+            //? print this;
+            Tk::Print,
+            Tk::ThisTk,
+            Tk::Semi,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![("a".into(), V::I32(22))]);
+        let inter = test_run(environment, statements);
+
+        // todo: assert stdout
+
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(22)));
+    }
 
     #[test]
     fn test_class_this() {
