@@ -119,7 +119,7 @@ enum Expr {
 pub enum V {
     Done,
     Return(Box<V>),
-    Instance(Box<Instance>),
+    Instance(Box<InstanceObject>),
     Row(Box<RowObject>),
     Callable(Box<FunctionObject>),
     NativeCallable(String),
@@ -499,7 +499,7 @@ enum Statement {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Instance {
+pub struct InstanceObject {
     row: RowObject,
     /*
      * Doing a hash table lookup for every field access
@@ -513,20 +513,20 @@ pub struct Instance {
     fields: HashMap<String, V>,
 }
 
-impl std::hash::Hash for Instance {
+impl std::hash::Hash for InstanceObject {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.row.hash(state);
     }
 }
 
-impl fmt::Display for Instance {
+impl fmt::Display for InstanceObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "<{} instance>", String::from(self.row.name.clone()))?;
         Ok(())
     }
 }
 
-impl Instance {
+impl InstanceObject {
     fn new(row: RowObject) -> Self {
         Self {
             row,
@@ -540,7 +540,12 @@ impl Instance {
         self.fields.insert(key, value);
     }
 
-    fn get_prop(self, name: Tk) -> RValue {
+    fn get_prop(
+        self,
+        interpreter: &mut Interpreter,
+        name: Tk,
+        this: &Box<InstanceObject>,
+    ) -> RValue {
         let key = String::from(name.clone());
         /*
          * Note how I switched from talking about “properties”
@@ -561,8 +566,9 @@ impl Instance {
              * a subtle but important semantic point.
              */
             // todo: test shadowing❗
-            let function = self.row.behaviors.get(&key).unwrap().clone();
-            Ok(V::Callable(Box::new(function)))
+            let function = self.row.behaviors.get(&key).unwrap();
+            let val = function.bind_instance(interpreter, &V::Instance(this.clone()));
+            Ok(val)
         } else {
             /*
              * An interesting edge case we need to handle
@@ -574,7 +580,7 @@ impl Instance {
              * it does anything useful. Instead, we’ll make it a
              * runtime error.
              */
-            Err(RE::UndefinedProperty(name.clone()))
+            Err(Runtime::UndefinedProperty(name.clone()))
         }
     }
 }
@@ -593,7 +599,7 @@ pub struct RowObject {
 
 impl FnCallable for RowObject {
     fn call(&mut self, _interpreter: &mut Interpreter, _arguments: Vec<V>) -> RValue {
-        let instance = Instance::new(self.clone());
+        let instance = InstanceObject::new(self.clone());
         Ok(V::Instance(Box::new(instance)))
     }
 
@@ -638,6 +644,23 @@ impl FunctionObject {
     fn new(declaration: Statement) -> Self {
         //todo: this should be only for Statement::Function❗
         Self { declaration }
+    }
+
+    fn bind_instance(&self, interpreter: &mut Interpreter, value_instance: &V) -> V {
+        let fn_name = match self.declaration.clone() {
+            Statement::FunctionDeclaration {
+                // kind: _,
+                name,
+                parameters: _,
+                body: _,
+            } => name,
+            _ => todo!(),
+        };
+
+        let mut call_env = Env::new(EnvKind::Call(fn_name.clone()));
+        call_env.define("SELF".into(), value_instance.clone());
+        interpreter.global_env.push(call_env);
+        V::Callable(Box::new(FunctionObject::new(self.declaration.clone())))
     }
 }
 
@@ -1417,14 +1440,14 @@ impl Interpreter {
             match value {
                 Ok(_val) => (),
                 Err(err) => match err {
-                    RE::MustBeNumber(_) => todo!(),
-                    RE::NotNumber(_, _, _) => todo!(),
-                    RE::MustBeBoolean(_) => todo!(),
-                    RE::UndefinedVariable(v) => todo!("undefined variable {}", v),
-                    RE::NotCallableValue(_) => todo!(),
-                    RE::WrongCallableArity(_, _, _) => todo!(),
-                    RE::NotInstance(_) => todo!(),
-                    RE::UndefinedProperty(_) => todo!(),
+                    Runtime::MustBeNumber(_) => todo!(),
+                    Runtime::NotNumber(_, _, _) => todo!(),
+                    Runtime::MustBeBoolean(_) => todo!(),
+                    Runtime::UndefinedVariable(v) => todo!("undefined variable {}", v),
+                    Runtime::NotCallableValue(_) => todo!(),
+                    Runtime::WrongCallableArity(_, _, _) => todo!(),
+                    Runtime::NotInstance(_) => todo!(),
+                    Runtime::UndefinedProperty(_) => todo!(),
                 },
             }
         }
@@ -1693,7 +1716,7 @@ impl Interpreter {
                     Ok(val)
                 } else {
                     //*  "Only instances have fields."
-                    Err(RE::NotInstance(name))
+                    Err(Runtime::NotInstance(name))
                 }
             }
             Expr::GetProp(obj, prop_name) => {
@@ -1710,10 +1733,11 @@ impl Interpreter {
                  * If the object is some other type like a number,
                  * invoking a getter on it is a runtime error.
                  */
-                if let V::Instance(obj) = object {
-                    obj.get_prop(prop_name)
+                if let V::Instance(boxed_instance) = object {
+                    let this_instance = Box::clone(&boxed_instance);
+                    boxed_instance.get_prop(self, prop_name, &this_instance)
                 } else {
-                    Err(RE::NotInstance(prop_name))
+                    Err(Runtime::NotInstance(prop_name))
                 }
             }
             Expr::FunctionCall {
@@ -1793,11 +1817,11 @@ impl Interpreter {
                      * one that the interpreter knows to catch and
                      * report gracefully.
                      */
-                    _ => return Err(RE::NotCallableValue(paren)),
+                    _ => return Err(Runtime::NotCallableValue(paren)),
                 };
 
                 if argument_list.len() != function.arity() {
-                    return Err(RE::WrongCallableArity(
+                    return Err(Runtime::WrongCallableArity(
                         paren,
                         function.arity(),
                         argument_list.len(),
@@ -1837,10 +1861,10 @@ impl Interpreter {
                 match (operator, right) {
                     (Tk::Sub, V::I32(r)) => Ok(V::I32(-r)),
                     (Tk::Sub, V::F64(r)) => Ok(V::F64(-r)),
-                    (Tk::Sub, value) => Err(RE::MustBeNumber(value)),
+                    (Tk::Sub, value) => Err(Runtime::MustBeNumber(value)),
                     (Tk::Bang, V::Bool(false)) => Ok(V::Bool(true)),
                     (Tk::Bang, V::Bool(true)) => Ok(V::Bool(false)),
-                    (Tk::Bang, value) => Err(RE::MustBeBoolean(value)),
+                    (Tk::Bang, value) => Err(Runtime::MustBeBoolean(value)),
                     /*
                      * You’re probably wondering what happens
                      * if the cast fails❓.
@@ -1904,10 +1928,10 @@ impl Interpreter {
                      */
                     (V::I32(l), Tk::Sub, V::I32(r)) => Ok(V::I32(l - r)),
                     (V::F64(l), Tk::Sub, V::F64(r)) => Ok(V::F64(l - r)),
-                    (l, Tk::Sub, r) => Err(RE::NotNumber(l, Tk::Sub, r)),
+                    (l, Tk::Sub, r) => Err(Runtime::NotNumber(l, Tk::Sub, r)),
                     (V::I32(l), Tk::Mul, V::I32(r)) => Ok(V::I32(l * r)),
                     (V::F64(l), Tk::Mul, V::F64(r)) => Ok(V::F64(l * r)),
-                    (l, Tk::Mul, r) => Err(RE::NotNumber(l, Tk::Mul, r)),
+                    (l, Tk::Mul, r) => Err(Runtime::NotNumber(l, Tk::Mul, r)),
                     // todo: What happens right now if you divide a number by zero? What do you think should happen?
                     /*
                      * comparisons:
@@ -1919,10 +1943,10 @@ impl Interpreter {
                      */
                     (V::I32(l), Tk::EQ, V::I32(r)) => Ok(V::Bool(l.eq(&r))),
                     (V::F64(l), Tk::EQ, V::F64(r)) => Ok(V::Bool(l.eq(&r))),
-                    (l, Tk::EQ, r) => Err(RE::NotNumber(l, Tk::EQ, r)),
+                    (l, Tk::EQ, r) => Err(Runtime::NotNumber(l, Tk::EQ, r)),
                     (V::I32(l), Tk::LT, V::I32(r)) => Ok(V::Bool(l.lt(&r))),
                     (V::F64(l), Tk::LT, V::F64(r)) => Ok(V::Bool(l.lt(&r))),
-                    (l, Tk::LT, r) => Err(RE::NotNumber(l, Tk::LT, r)),
+                    (l, Tk::LT, r) => Err(Runtime::NotNumber(l, Tk::LT, r)),
                     /*
                      * Allowing comparisons on types other than numbers
                      * could be useful. The operators might have a reasonable
@@ -1959,16 +1983,16 @@ impl Interpreter {
                 self.global_env.len()
             );
 
-            if let Some(environment) = self.global_env.get_mut(index) {
+            if let Some(env) = self.global_env.get_mut(index) {
                 // println!("\nlooking for: {identifier:?} ? -> {:?}", environment.kind);
-                println!("\nenv: {environment}");
+                println!("\nenv: {env}");
                 // todo: remove after depth testing
-                if environment.kind == EnvKind::Global {
+                if env.kind == EnvKind::Global {
                     panic!("should not be global!")
                 }
                 //? looking up in closure
                 let current_fn_call = &self.current_function_call;
-                if environment.kind == EnvKind::Call(current_fn_call.clone()) {
+                if env.kind == EnvKind::Call(current_fn_call.clone()) {
                     // println!("\n fns: {:?}", self.functions_table);
                     // println!("\n closures: {:?}", self.closures);
                     if let Some(closure_name) = self.functions_map.get(current_fn_call) {
@@ -1984,10 +2008,10 @@ impl Interpreter {
                     }
                 }
                 //? continue with global_env
-                if let Some(value) = environment.assign(to_identifier.clone(), value.clone()) {
+                if let Some(value) = env.assign(to_identifier.clone(), value.clone()) {
                     Ok(value)
                 } else {
-                    Err(RE::UndefinedVariable(to_identifier.into()))
+                    Err(Runtime::UndefinedVariable(to_identifier.into()))
                 }
             } else {
                 unreachable!("an error in the resolver or the interpreter!")
@@ -1999,7 +2023,7 @@ impl Interpreter {
                 if let Some(value) = globals.assign(to_identifier.clone(), value) {
                     Ok(value)
                 } else {
-                    Err(RE::UndefinedVariable(to_identifier.into()))
+                    Err(Runtime::UndefinedVariable(to_identifier.into()))
                 }
             } else {
                 unreachable!("globals is not defined!")
@@ -2078,7 +2102,7 @@ impl Interpreter {
                 if let Some(value) = environment.fetch(identifier.clone()) {
                     Ok(value)
                 } else {
-                    Err(RE::UndefinedVariable(identifier.into()))
+                    Err(Runtime::UndefinedVariable(identifier.into()))
                 }
             } else {
                 unreachable!("an error in the resolver or the interpreter!")
@@ -2091,7 +2115,7 @@ impl Interpreter {
                 if let Some(value) = globals.fetch(identifier.clone()) {
                     Ok(value)
                 } else {
-                    Err(RE::UndefinedVariable(identifier.into()))
+                    Err(Runtime::UndefinedVariable(identifier.into()))
                 }
             } else {
                 unreachable!("globals is not defined!")
@@ -2121,7 +2145,7 @@ enum ParserAy {
 }
 
 #[derive(PartialEq)]
-pub enum RE {
+pub enum Runtime {
     /*
      * @see: https://craftinginterpreters.com/evaluating-expressions.html#design-note
      * It turns out even most statically typed
@@ -2177,7 +2201,7 @@ use env_02_vector::Env;
 use crate::env_02_vector::EnvKind;
 type Result<T> = StdResult<T, ParserAy>;
 type RStatement = StdResult<Statement, ParserAy>;
-type RValue = StdResult<V, RE>;
+type RValue = StdResult<V, Runtime>;
 
 #[allow(dead_code)]
 impl Parser {
@@ -3488,7 +3512,7 @@ mod tests {
             iter.next_back().unwrap(),
             &(
                 "print".into(),
-                V::Instance(Box::new(Instance::new(RowObject::new(
+                V::Instance(Box::new(InstanceObject::new(RowObject::new(
                     Tk::Identifier("Bagel".into(), 1),
                     HashMap::new()
                 ))))
