@@ -203,8 +203,9 @@ trait Callable {
 }
 
 impl Callable for V {
-    fn call(&mut self, _interpreter: &mut Interpreter, _arguments: Vec<V>) -> RValue {
+    fn call(&mut self, interpreter: &mut Interpreter, arguments: Vec<V>) -> RValue {
         match self {
+            V::Func(callable) => callable.call(interpreter, arguments),
             V::NativeFunc(fn_name) => match fn_name.as_str() {
                 "clock" => {
                     let current_time = std::time::SystemTime::now()
@@ -215,11 +216,16 @@ impl Callable for V {
                 }
                 _ => panic!(),
             },
-            _ => {
-                // Handle other variants if needed
-                // For example, return a default arity value or throw an error
-                panic!()
-            }
+            //? Handle other variants if needed
+            //? For example, return a default arity value or throw an error
+            V::Done => Err(Runtime::NonCallable),
+            V::Return(_) => Err(Runtime::NonCallable),
+            V::Instance(_) => Err(Runtime::NonCallable),
+            V::Row(_) => Err(Runtime::NonCallable),
+            V::I32(_) => Err(Runtime::NonCallable),
+            V::F64(_) => Err(Runtime::NonCallable),
+            V::String(_) => Err(Runtime::NonCallable),
+            V::Bool(_) => Err(Runtime::NonCallable),
         }
     }
 
@@ -533,7 +539,7 @@ impl std::hash::Hash for InstanceObject {
 
 impl fmt::Display for InstanceObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "<{} instance>", String::from(self.row.name.clone()))?;
+        write!(f, "<instance of {}>", String::from(self.row.name.clone()))?;
         Ok(())
     }
 }
@@ -554,6 +560,25 @@ impl InstanceObject {
         // println!("\n----- instance {self:?}");
     }
 
+    /*
+     * Most modern languages support “getters” and “setters”—members on a
+     * class that look like field reads and writes but that actually execute
+     * user-defined code.
+     *
+     * These are declared without a parameter list. T
+     * he body of the getter is executed when a property with that name is accessed.
+     */
+    // todo: Extend Lox to support getter methods.
+    //? class Circle {
+    //?     init(radius) {
+    //?       this.radius = radius;
+    //?     }
+    //?     area {
+    //?       return 3.141592653 * this.radius * this.radius;
+    //?     }
+    //?   }
+    //?   var circle = Circle(4);
+    //?   print circle.area; // Prints roughly "50.2655".
     fn get_prop(self, interpreter: &mut Interpreter, name: Tk) -> RValue {
         let key = String::from(name.clone());
         /*
@@ -594,6 +619,19 @@ impl InstanceObject {
     }
 }
 
+/*
+ * Python and JavaScript allow you to freely access an object’s fields from outside of
+ * its own methods. Ruby and Smalltalk encapsulate instance state.
+ * Only methods on the class can access the raw fields, and it is up to the
+ * class to decide which state is exposed. Most statically typed languages offer
+ * modifiers like private and public to control which parts of a
+ * class are externally accessible on a per-member basis.
+ *
+ * ❓❓
+ * @see https://craftinginterpreters.com/classes.html#design-note
+ * What are the trade-offs between these approaches and
+ * why might a language prefer one or the other?
+ */
 #[derive(Debug, Clone, PartialEq)]
 pub struct RowObject {
     name: Tk,
@@ -604,16 +642,61 @@ pub struct RowObject {
      * they are still accessed through instances of that class.
      */
     behaviors: HashMap<String, FunctionObject>,
+    /*
+     * We have methods on instances, but there is no way to define “static” methods
+     * that can be called directly on the class object itself.
+     */
+    // todo: Add support for them.
+    //? class Math {
+    //?     class square(n) {
+    //?         return n * n;
+    //?     }
+    //? }
+    //? print Math.square(3); // Prints "9".
+    /*
+     * You can solve this however you like, but the “meta-classes” used by Smalltalk
+     * and Ruby are a particularly elegant approach.
+     *
+     * Hint: Make LoxClass extend LoxInstance and go from there.
+     */
 }
 
 impl Callable for RowObject {
-    fn call(&mut self, _interpreter: &mut Interpreter, _arguments: Vec<V>) -> RValue {
-        let instance = InstanceObject::new(self.clone());
-        Ok(V::Instance(Box::new(instance)))
+    fn call(&mut self, interpreter: &mut Interpreter, arguments: Vec<V>) -> RValue {
+        let value_instance = V::Instance(Box::new(InstanceObject::new(self.clone())));
+        let init = self.behaviors.get(&"new".to_string());
+        if let Some(constructor) = init {
+            /*
+             * When a class is called, after the LoxInstance is created,
+             * we look for an “init” method. If we find one,
+             * we immediately bind and invoke it just like a normal method call.
+             * The argument list is forwarded along.
+             */
+            constructor
+                .bind_instance(interpreter, &value_instance)
+                .call(interpreter, arguments)?;
+        };
+        Ok(value_instance)
     }
 
     fn arity(&self) -> usize {
-        0
+        /*
+         * If there is an initializer, that method’s arity determines how many
+         * arguments you must pass when you call the class itself.
+         * We don’t require a class to define an initializer, though, as a convenience.
+         * If you don’t have an initializer, the arity is still zero.
+         *
+         * That’s basically it. Since we bind the init() method before we call it,
+         * it has access to this inside its body. That, along with the arguments
+         * passed to the class, are all you need to be able to set up the new
+         * instance however you desire.
+         */
+        let init = self.behaviors.get(&"new".to_string());
+        if let Some(constructor) = init {
+            constructor.arity()
+        } else {
+            0
+        }
     }
 }
 
@@ -640,6 +723,9 @@ impl fmt::Display for RowObject {
 pub struct FunctionObject {
     //? Stmt.Function
     declaration: Statement,
+    // * If the function is an initializer,
+    // * we override the actual return value and forcibly return it's instance.
+    is_constructor: bool,
 }
 
 impl std::hash::Hash for FunctionObject {
@@ -650,9 +736,12 @@ impl std::hash::Hash for FunctionObject {
 }
 
 impl FunctionObject {
-    fn new(declaration: Statement) -> Self {
+    fn new(declaration: Statement, is_constructor: bool) -> Self {
         //todo: this should be only for Statement::Function❗
-        Self { declaration }
+        Self {
+            declaration,
+            is_constructor,
+        }
     }
 
     fn bind_instance(&self, interpreter: &mut Interpreter, val: &V) -> V {
@@ -665,11 +754,19 @@ impl FunctionObject {
             } => name,
             _ => todo!(),
         };
-
+        println!("CREATE CALL ENV FOR {fn_name:?}");
         let mut call_env = Env::new(EnvKind::Call(fn_name.clone()));
         call_env.define(Tk::ThisTk.into(), val.clone());
         interpreter.global_env.push(call_env);
-        V::Func(Box::new(FunctionObject::new(self.declaration.clone())))
+        /*
+         * And then in bind() where we create the closure that binds this to
+         * a method, we pass along the original method’s value.
+         */
+        //todo: add closure
+        V::Func(Box::new(FunctionObject::new(
+            self.declaration.clone(),
+            self.is_constructor,
+        )))
     }
 }
 
@@ -814,23 +911,58 @@ impl Callable for FunctionObject {
 
         // interpreter.global_env.push(call_env);
         let returned = interpreter.eval_block(fn_body)?;
-        interpreter.global_env.pop();
-        println!("<<< CALL out");
-
+        let Some(call_to_be_dropped) = interpreter.global_env.pop() else {
+            unreachable!("call env not defined before!")
+        };
+        println!("<<< call OFF {call_to_be_dropped}");
+        //todo: add instance to closure❗❓
         println!("closures {:?}", interpreter.closures);
         for env in interpreter.global_env.iter() {
             println!("globals: {}", env);
         }
-
         //? finishing call
-        //? an issue arise on recursive calls
-        //? maybe use an stack❓
+        //? an issue can arise on recursive calls
+        //? maybe use an stack or the technique in the resolver❓
         // interpreter.current_function_call = Tk::Default;
         // interpreter.current_function_type = FunType::None;
-
         match returned {
             V::Return(value) => Ok(*value),
-            _ => Ok(V::Done),
+            _ => {
+                /*
+                 * Can you “re-initialize” an object by directly
+                 * calling its new() method?
+                 * If you do, what does it return? A reasonable answer
+                 * would be nil since that’s what it appears the body returns.
+                 *
+                 * However—and I generally dislike compromising to satisfy the
+                 * implementation—it will make clox’s implementation of constructors
+                 * much easier if we say that init() methods always return this,
+                 * even when directly called. In order to keep jlox
+                 * compatible with that, we add a little special case code in LoxFunction.
+                 *
+                 * It’s reasonable to have the constraints and resources of your
+                 * implementation affect the design of the language.
+                 * There are only so many hours in the day, and if a
+                 * cut corner here or there lets you get more features to
+                 * users in less time, it may very well be a net win for their
+                 * happiness and productivity.
+                 *
+                 * The trick is figuring out which corners to cut that
+                 * won’t cause your users and future self to curse your shortsightedness.
+                 */
+                if self.is_constructor {
+                    //? aquí usamos la call env, antes de que se libere
+                    //? idealmente deberia usarse desde el closure
+                    //? pero por ahora lo dejamos así
+                    // todo: hacer un test para que falle desde el closure❗
+                    let Some(this) = call_to_be_dropped.fetch(Tk::ThisTk) else {
+                        unreachable!("instance should be defined!");
+                    };
+                    Ok(this)
+                } else {
+                    Ok(V::Done)
+                }
+            }
         }
     }
 
@@ -883,6 +1015,7 @@ where
 #[derive(Debug, Clone, PartialEq)]
 enum FnType {
     None,
+    Constructor,
     Function,
     Column,
 }
@@ -1087,7 +1220,7 @@ impl<'a> Resolver<'a> {
      * It creates a new scope for the body and then binds variables
      * for each of the function’s parameters.
      */
-    fn resolve_function_declaration(&mut self, declaration: Statement, kind: FnType) {
+    fn resolve_behavior(&mut self, declaration: Statement, kind: FnType) {
         if let Statement::FunctionDeclaration {
             kind: _,
             name: _,
@@ -1314,15 +1447,31 @@ impl ResolutionPass<Statement> for Resolver<'_> {
                 if let Some(scope) = self.scopes.last_mut() {
                     scope.insert(Tk::ThisTk.into(), true);
                 }
-                //? methods aka column
+                //? resolviendo methods aka column...
                 /*
                  * Storing the function type in a local variable is pointless right now,
                  * but we’ll expand this code before too long and it will make more sense.
                  *
                  * "FunType::Column", That’s going to be important when we resolve this expressions.
                  */
-                for col in columns {
-                    self.resolve_function_declaration(col, FnType::Column)
+                println!("{:?}", columns);
+                for behavior in columns {
+                    let kind = match &behavior {
+                        Statement::FunctionDeclaration {
+                            kind,
+                            name: _,
+                            parameters: _,
+                            body: _,
+                        } => kind,
+                        _ => unreachable!("should be function!"),
+                    };
+                    match kind {
+                        FnType::Constructor => self.resolve_behavior(behavior, FnType::Constructor),
+                        FnType::Column => self.resolve_behavior(behavior, FnType::Column),
+                        FnType::None | FnType::Function => {
+                            unreachable!("should be column or constructor!")
+                        }
+                    }
                 }
 
                 self.end_scope();
@@ -1363,7 +1512,7 @@ impl ResolutionPass<Statement> for Resolver<'_> {
             } => {
                 self.declare_variable(name.clone());
                 self.define_variable(name);
-                self.resolve_function_declaration(val, FnType::Function);
+                self.resolve_behavior(val, FnType::Function);
             }
             /*
              * A variable declaration adds a new variable to the current scope.
@@ -1445,7 +1594,15 @@ impl ResolutionPass<Statement> for Resolver<'_> {
                      */
                     //todo: Extend the resolver to report an error if a local variable is never used.
                     panic!("{keyword:?}, Can't return from top-level code.");
-                }
+                } else if self.current_fn_type == FnType::Constructor {
+                    /*
+                     * We’re still not done. We statically disallow returning a
+                     * value from an initializer, but you can still use an empty
+                     * early return.
+                     */
+                    // Lox.error(stmt.keyword, "Can't return a value from an initializer.");
+                    panic!("{keyword:?}, Can't return a value from an initializer.");
+                };
 
                 match value {
                     Expr::None => {}
@@ -1544,6 +1701,7 @@ impl Interpreter {
                     Runtime::WrongCallableArity(_, _, _) => todo!(),
                     Runtime::NotInstance(_) => todo!(),
                     Runtime::UndefinedProperty(_) => todo!(),
+                    Runtime::NonCallable => todo!("non callable value"),
                 },
             }
         }
@@ -1600,22 +1758,27 @@ impl Interpreter {
                 //? por que no lo definimos en seguida❓
                 //? por que vamos a definir los métodos❗
                 let mut behaviors = HashMap::new();
-                for column in columns {
+                for behavior_declaration in columns {
                     if let Statement::FunctionDeclaration {
                         kind: _,
                         name,
                         parameters: _,
                         body: _,
-                    } = column.clone()
+                    } = behavior_declaration.clone()
                     {
+                        let behavior_name = String::from(name);
                         /*
                          * When we interpret a class declaration statement, we turn the syntactic
                          * representation of the class—its AST node—into its runtime representation.
                          * Now, we need to do that for the methods contained in the class as well.
                          * Each method declaration blossoms into a LoxFunction object.
+                         *
+                         * For actual function declarations, isInitializer is always false.
+                         * For methods, we check the name.
                          */
-                        let function = FunctionObject::new(column);
-                        behaviors.insert(String::from(name), function);
+                        let function =
+                            FunctionObject::new(behavior_declaration, behavior_name.eq(&"new"));
+                        behaviors.insert(behavior_name, function);
                     } else {
                         unreachable!("not a function declaration!")
                     }
@@ -1641,12 +1804,15 @@ impl Interpreter {
                  * of the function—and convert it to its runtime representation.
                  * Here, that’s a CallableObject that wraps the syntax node.
                  */
-                let function = FunctionObject::new(Statement::FunctionDeclaration {
-                    kind,
-                    name: name.clone(),
-                    parameters,
-                    body,
-                });
+                let function = FunctionObject::new(
+                    Statement::FunctionDeclaration {
+                        kind,
+                        name: name.clone(),
+                        parameters,
+                        body,
+                    },
+                    false,
+                );
                 /*
                  * Function declarations are different from other literal nodes
                  * in that the declaration also binds the resulting object to
@@ -2355,6 +2521,7 @@ pub enum Runtime {
     WrongCallableArity(Tk, usize, usize),
     NotInstance(Tk),
     UndefinedProperty(Tk),
+    NonCallable,
 }
 
 use std::result::Result as StdResult;
@@ -2551,6 +2718,7 @@ impl Parser {
         }
 
         let kind_string = match kind {
+            FnType::Constructor => "initializer",
             FnType::Column => "column",
             FnType::Function => "function",
             FnType::None => unreachable!("not a function type!"),
@@ -2632,12 +2800,21 @@ impl Parser {
             }
         };
         // return new Stmt.Function(name, parameters, body);
-        Ok(Statement::FunctionDeclaration {
-            kind,
-            name,
-            parameters,
-            body,
-        })
+        if String::from(name.clone()).as_str() == "new" {
+            Ok(Statement::FunctionDeclaration {
+                kind: FnType::Constructor,
+                name,
+                parameters,
+                body,
+            })
+        } else {
+            Ok(Statement::FunctionDeclaration {
+                kind,
+                name,
+                parameters,
+                body,
+            })
+        }
     }
 
     //* "let" IDENTIFIER ( "=" expression )? ";" ;
@@ -2747,7 +2924,7 @@ impl Parser {
         // if (!check(SEMICOLON)) {
         //   value = expression();
         // }
-        let value = if self.current_token != Tk::Semi || self.current_token != Tk::End {
+        let value = if self.current_token != Tk::Semi && self.current_token != Tk::End {
             /*
              * After snagging the previously consumed return keyword,
              * we look for a value expression.
@@ -3599,6 +3776,162 @@ fn main() {
 mod tests {
     use super::*;
 
+    #[test]
+    #[should_panic = "Return(3), Can't return a value from an initializer."]
+    fn test_constructor_call_returns_instance_3() {
+        //?1 class Foo {
+        //?2        new() {
+        //?3            return;
+        //?4        }
+        //?5  }
+        //* Prints "The German chocolate cake is delicious!".
+        let tokens = vec![
+            //?1 class Foo {
+            Tk::Class,
+            Tk::Identifier("Foo".into(), 1),
+            Tk::LBrace,
+            //?2        new() {
+            Tk::Identifier("new".into(), 2),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::LBrace,
+            //?3             return;
+            Tk::Return(3),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::RBrace,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![]);
+        let inter = test_run(environment, statements);
+
+        let mut row = RowObject::new(Tk::Identifier("Foo".into(), 1), HashMap::new());
+        row.behaviors.insert(
+            String::from("new"),
+            FunctionObject::new(
+                Statement::FunctionDeclaration {
+                    kind: FnType::Constructor,
+                    name: Tk::Identifier("new".into(), 2),
+                    parameters: vec![],
+                    body: vec![Statement::Print(Expr::This(Tk::ThisTk))],
+                },
+                true,
+            ),
+        );
+        let instance = V::Instance(Box::new(InstanceObject::new(row)));
+        // todo: assert stdout
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        // assert_eq!(iter.next_back().unwrap(), &("print".into(), V::Done));
+        assert_eq!(
+            iter.next_back().unwrap(),
+            &("print".into(), instance.clone())
+        );
+    }
+
+    #[test]
+    #[should_panic = "Return(3), Can't return a value from an initializer."]
+    fn test_constructor_call_returns_instance_2() {
+        //?1 class Foo {
+        //?2        new() {
+        //?3            return 42;
+        //?4        }
+        //?5  }
+        //* Prints "The German chocolate cake is delicious!".
+        let tokens = vec![
+            //?1 class Foo {
+            Tk::Class,
+            Tk::Identifier("Foo".into(), 1),
+            Tk::LBrace,
+            //?2        new() {
+            Tk::Identifier("new".into(), 2),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::LBrace,
+            //?3             return 42;
+            Tk::Return(3),
+            Tk::Num(42),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::RBrace,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![]);
+        let _ = test_run(environment, statements);
+    }
+
+    #[test]
+    fn test_constructor_call_returns_instance() {
+        //?1 class Foo {
+        //?2        new() {
+        //?3            print this;
+        //?4        }
+        //?5  }
+        //?6  var foo = Foo();
+        //?7  print foo.new();
+        //* Prints "The German chocolate cake is delicious!".
+        let tokens = vec![
+            //?1 class Foo {
+            Tk::Class,
+            Tk::Identifier("Foo".into(), 1),
+            Tk::LBrace,
+            //?2        new() {
+            Tk::Identifier("new".into(), 2),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::LBrace,
+            //?3            print this;
+            Tk::Print,
+            Tk::ThisTk,
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::RBrace,
+            //?6  var foo = Foo();
+            Tk::Var,
+            Tk::Identifier("foo".into(), 6),
+            Tk::Assign,
+            Tk::Identifier("Foo".into(), 6),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Semi,
+            //?7  print foo.init();
+            Tk::Print,
+            Tk::Identifier("foo".into(), 7),
+            Tk::Dot,
+            Tk::Identifier("new".into(), 7),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Semi,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![]);
+        let inter = test_run(environment, statements);
+
+        let mut row = RowObject::new(Tk::Identifier("Foo".into(), 1), HashMap::new());
+        row.behaviors.insert(
+            String::from("new"),
+            FunctionObject::new(
+                Statement::FunctionDeclaration {
+                    kind: FnType::Constructor,
+                    name: Tk::Identifier("new".into(), 2),
+                    parameters: vec![],
+                    body: vec![Statement::Print(Expr::This(Tk::ThisTk))],
+                },
+                true,
+            ),
+        );
+        let instance = V::Instance(Box::new(InstanceObject::new(row)));
+        // todo: assert stdout
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        // assert_eq!(iter.next_back().unwrap(), &("print".into(), V::Done));
+        assert_eq!(
+            iter.next_back().unwrap(),
+            &("print".into(), instance.clone())
+        );
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), instance));
+    }
+
     /*
      * There is no instance for this to point to if you’re not in a method.
      * We could give it some default value like nil or make it a runtime error,
@@ -3833,15 +4166,18 @@ mod tests {
         let mut behaviors = HashMap::new();
         behaviors.insert(
             "serveOn".to_string(),
-            FunctionObject::new(Statement::FunctionDeclaration {
-                kind: FnType::Column,
-                name: Tk::Identifier("serveOn".into(), 2),
-                parameters: vec![],
-                body: vec![Statement::Return {
-                    keyword: Tk::Return(3),
-                    value: Expr::Literal(V::I32(42)),
-                }],
-            }),
+            FunctionObject::new(
+                Statement::FunctionDeclaration {
+                    kind: FnType::Column,
+                    name: Tk::Identifier("serveOn".into(), 2),
+                    parameters: vec![],
+                    body: vec![Statement::Return {
+                        keyword: Tk::Return(3),
+                        value: Expr::Literal(V::I32(42)),
+                    }],
+                },
+                false,
+            ),
         );
 
         assert_eq!(
