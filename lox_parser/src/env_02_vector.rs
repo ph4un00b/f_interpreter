@@ -66,13 +66,17 @@ impl Env {
          * My rule about variables and scoping is, “When in doubt, do what Scheme does”.
          * Scheme allows redefining variables at the top level.
          */
+        // println!("\n---- will define {val} in {self}");
         self.values.insert(name, val);
     }
 
     pub fn fetch(&self, name: Tk) -> Option<V> {
         let identifier = String::from(name.clone());
+        // println!("env-values: {:?}", self.values);
+
         if self.values.contains_key(&identifier) {
             let value = self.values.get(&identifier).unwrap();
+            // println!("\n----- will fetch {value} CLONED in {self}");
             Some(value.clone())
         } else {
             None
@@ -108,6 +112,7 @@ impl Env {
         //? Unlike Python and Ruby, Lox doesn’t do❗
         let identifier = String::from(name.clone());
         if self.values.contains_key(&identifier) {
+            // println!("\n----- will assign {value} CLONED to {identifier} {self}");
             //? aquí clippy me obligo a cambiar el insert!
             //? @see https://rust-lang.github.io/rust-clippy/master/index.html#/map_entry
             self.values
