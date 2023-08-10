@@ -122,8 +122,8 @@ pub enum V {
     Return(Box<V>),
     Instance(Box<InstanceObject>),
     Row(Box<RowObject>),
-    Callable(Box<FunctionObject>),
-    NativeCallable(String),
+    Func(Box<FunctionObject>),
+    NativeFunc(String),
     I32(i32),
     F64(f64),
     String(String),
@@ -138,11 +138,11 @@ impl std::hash::Hash for V {
                 state.write_u8(1);
                 val.hash(state);
             }
-            V::Callable(func) => {
+            V::Func(func) => {
                 state.write_u8(2);
                 func.as_ref().hash(state);
             }
-            V::NativeCallable(name) => {
+            V::NativeFunc(name) => {
                 state.write_u8(3);
                 name.hash(state);
             }
@@ -182,8 +182,8 @@ impl PartialEq for V {
         match (self, other) {
             (Done, Done) => true,
             (Return(a), Return(b)) => *a == *b,
-            (Callable(a), Callable(b)) => *a == *b,
-            (NativeCallable(a), NativeCallable(b)) => a == b,
+            (Func(a), Func(b)) => *a == *b,
+            (NativeFunc(a), NativeFunc(b)) => a == b,
             (I32(a), I32(b)) => a == b,
             (F64(a), F64(b)) => a == b,
             (String(a), String(b)) => a == b,
@@ -197,15 +197,15 @@ impl PartialEq for V {
 
 impl Eq for V {}
 
-trait FnCallable {
+trait Callable {
     fn call(&mut self, interpreter: &mut Interpreter, arguments: Vec<V>) -> RValue;
     fn arity(&self) -> usize;
 }
 
-impl FnCallable for V {
+impl Callable for V {
     fn call(&mut self, _interpreter: &mut Interpreter, _arguments: Vec<V>) -> RValue {
         match self {
-            V::NativeCallable(fn_name) => match fn_name.as_str() {
+            V::NativeFunc(fn_name) => match fn_name.as_str() {
                 "clock" => {
                     let current_time = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -225,7 +225,7 @@ impl FnCallable for V {
 
     fn arity(&self) -> usize {
         match self {
-            V::NativeCallable(fn_name) => match fn_name.as_str() {
+            V::NativeFunc(fn_name) => match fn_name.as_str() {
                 //todo: maybe use an enum to have compile time checks ❓
                 "clock" => 0,
                 _ => panic!(),
@@ -244,8 +244,8 @@ impl fmt::Display for V {
         match self {
             V::Done => write!(f, "done!")?,
             V::Return(val) => write!(f, "ret {:?}", val)?,
-            V::Callable(function) => write!(f, "{}", function)?,
-            V::NativeCallable(fn_name) => match fn_name.as_str() {
+            V::Func(function) => write!(f, "{}", function)?,
+            V::NativeFunc(fn_name) => match fn_name.as_str() {
                 "clock" => write!(f, "<native {}>", fn_name)?,
                 _ => write!(f, "#{}", fn_name)?,
             },
@@ -606,7 +606,7 @@ pub struct RowObject {
     behaviors: HashMap<String, FunctionObject>,
 }
 
-impl FnCallable for RowObject {
+impl Callable for RowObject {
     fn call(&mut self, _interpreter: &mut Interpreter, _arguments: Vec<V>) -> RValue {
         let instance = InstanceObject::new(self.clone());
         Ok(V::Instance(Box::new(instance)))
@@ -669,7 +669,7 @@ impl FunctionObject {
         let mut call_env = Env::new(EnvKind::Call(fn_name.clone()));
         call_env.define(Tk::ThisTk.into(), val.clone());
         interpreter.global_env.push(call_env);
-        V::Callable(Box::new(FunctionObject::new(self.declaration.clone())))
+        V::Func(Box::new(FunctionObject::new(self.declaration.clone())))
     }
 }
 
@@ -699,7 +699,7 @@ impl Drop for FunctionObject {
     }
 }
 
-impl FnCallable for FunctionObject {
+impl Callable for FunctionObject {
     /*
      * Mechanically, the code is pretty simple.
      *
@@ -1516,7 +1516,7 @@ impl Interpreter {
          * since stuck. Lox is a Lisp-1.
          */
         let mut preludio = Env::new(EnvKind::Prelude);
-        preludio.define("clock".to_string(), V::NativeCallable("clock".to_string()));
+        preludio.define("clock".to_string(), V::NativeFunc("clock".to_string()));
         Self {
             runtime_error: false,
             global_env: vec![preludio, initial_env],
@@ -1656,7 +1656,7 @@ impl Interpreter {
                  */
                 self.functions_map
                     .insert(name.clone(), self.current_fn_call.clone());
-                self.define_declaration(name.clone(), V::Callable(Box::new(function)));
+                self.define_declaration(name.clone(), V::Func(Box::new(function)));
                 Ok(V::Done)
             }
             Statement::While { condition, body } => {
@@ -1935,8 +1935,8 @@ impl Interpreter {
                  * argument list is too short or too long.
                  */
                 // todo: do it in a generic way❗❓
-                let mut function: Box<dyn FnCallable> = match function_value.clone() {
-                    V::Callable(function) => function,
+                let mut function: Box<dyn Callable> = match function_value.clone() {
+                    V::Func(function) => function,
                     V::Row(function) => function,
                     // V::NativeCallable(_) => self.call(function_value, argument_values),
                     /*
