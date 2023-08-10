@@ -108,10 +108,11 @@ enum Expr {
     Assign(Tk, Box<Expr>),
     GetProp(Box<Expr>, Tk),
     SetProp {
-        expr: Box<Expr>,
-        name: Tk,
-        value: Box<Expr>,
+        identifier_expr: Box<Expr>,
+        prop_name: Tk,
+        expr_value: Box<Expr>,
     },
+    This(Tk),
     None,
 }
 
@@ -293,6 +294,7 @@ impl From<Tk> for String {
             Tk::RBrace => "}".to_string(),
             Tk::Comma => ",".to_string(),
             Tk::Dot => ".".to_string(),
+            Tk::ThisTk => "SELF".to_string(),
         }
     }
 }
@@ -331,6 +333,9 @@ pub enum Tk {
     Or,
     And,
     Dot,
+    //? due to logging clarity
+    // todo: find out a better name❓
+    ThisTk,
 }
 
 trait ToLiteral<TValue>
@@ -421,7 +426,12 @@ impl fmt::Display for Expr {
                 arguments,
             } => write!(f, "{}::(arguments{:?})", callee, arguments)?,
             Expr::GetProp(obj, name) => write!(f, "< {} GET {:?}", obj, name)?,
-            Expr::SetProp { expr, name, value } => write!(f, "> {expr} SET {name:?} = {value}")?,
+            Expr::SetProp {
+                identifier_expr: expr,
+                prop_name: name,
+                expr_value: value,
+            } => write!(f, "> {expr} SET {name:?} = {value}")?,
+            Expr::This(_) => write!(f, "@")?,
         }
 
         Ok(())
@@ -469,6 +479,8 @@ enum Statement {
      * function declaration statements.
      */
     FunctionDeclaration {
+        //? para detectar en runtime que clase es❗
+        kind: FnType,
         name: Tk,
         parameters: Vec<Tk>,
         body: Vec<Statement>,
@@ -510,7 +522,7 @@ pub struct InstanceObject {
      *
      * @see https://richardartoul.github.io/jekyll/update/2015/04/26/hidden-classes.html
      */
-    fields: HashMap<String, V>,
+    state_fields: HashMap<String, V>,
 }
 
 impl std::hash::Hash for InstanceObject {
@@ -530,22 +542,19 @@ impl InstanceObject {
     fn new(row: RowObject) -> Self {
         Self {
             row,
-            fields: HashMap::new(),
+            state_fields: HashMap::new(),
         }
     }
 
     fn mut_prop(&mut self, name: Tk, value: V) {
         let key = String::from(name.clone());
         // self.fields.entry(key).and_modify(|val| *val = value);
-        self.fields.insert(key, value);
+        // println!("\n----- will MUT {value} in {self}");
+        self.state_fields.insert(key, value);
+        // println!("\n----- instance {self:?}");
     }
 
-    fn get_prop(
-        self,
-        interpreter: &mut Interpreter,
-        name: Tk,
-        this: &Box<InstanceObject>,
-    ) -> RValue {
+    fn get_prop(self, interpreter: &mut Interpreter, name: Tk) -> RValue {
         let key = String::from(name.clone());
         /*
          * Note how I switched from talking about “properties”
@@ -557,9 +566,9 @@ impl InstanceObject {
          * Every field is a property, but as we’ll see later,
          * not every property is a field.
          */
-        if self.fields.contains_key(&key) {
+        if self.state_fields.contains_key(&key) {
             //todo: is this clone ok❓
-            Ok(self.fields.get(&key).unwrap().clone())
+            Ok(self.state_fields.get(&key).unwrap().clone())
         } else if self.row.behaviors.contains_key(&key) {
             /*
              * Looking for a field first implies that fields shadow methods,
@@ -567,19 +576,19 @@ impl InstanceObject {
              */
             // todo: test shadowing❗
             let function = self.row.behaviors.get(&key).unwrap();
-            let val = function.bind_instance(interpreter, &V::Instance(this.clone()));
+            let val = function.bind_instance(interpreter, &V::Instance(Box::new(self.clone())));
             Ok(val)
         } else {
             /*
-             * An interesting edge case we need to handle
-             * is what happens if the instance doesn’t have
-             * a property with the given name. We could
-             * silently return some dummy value like nil,
-             * but my experience with languages like JavaScript
-             * is that this behavior masks bugs more often than
-             * it does anything useful. Instead, we’ll make it a
-             * runtime error.
-             */
+            * An interesting edge case we need to handle
+            the given name. We could
+            * s * is what happens if the instance doesn’t have
+            * a property withilently return some dummy value like nil,
+            * but my experience with languages like JavaScript
+            * is that this behavior masks bugs more often than
+            * it does anything useful. Instead, we’ll make it a
+            * runtime error.
+            */
             Err(Runtime::UndefinedProperty(name.clone()))
         }
     }
@@ -646,10 +655,10 @@ impl FunctionObject {
         Self { declaration }
     }
 
-    fn bind_instance(&self, interpreter: &mut Interpreter, value_instance: &V) -> V {
+    fn bind_instance(&self, interpreter: &mut Interpreter, val: &V) -> V {
         let fn_name = match self.declaration.clone() {
             Statement::FunctionDeclaration {
-                // kind: _,
+                kind: _,
                 name,
                 parameters: _,
                 body: _,
@@ -658,7 +667,7 @@ impl FunctionObject {
         };
 
         let mut call_env = Env::new(EnvKind::Call(fn_name.clone()));
-        call_env.define("SELF".into(), value_instance.clone());
+        call_env.define(Tk::ThisTk.into(), val.clone());
         interpreter.global_env.push(call_env);
         V::Callable(Box::new(FunctionObject::new(self.declaration.clone())))
     }
@@ -669,6 +678,7 @@ impl fmt::Display for FunctionObject {
         // todo: look for refactors❗
         match self.declaration.clone() {
             Statement::FunctionDeclaration {
+                kind: _,
                 name,
                 parameters: _,
                 body: _,
@@ -703,13 +713,14 @@ impl FnCallable for FunctionObject {
      * Feel free to take a moment to meditate on it if you’re so inclined.
      */
     fn call(&mut self, interpreter: &mut Interpreter, arguments: Vec<V>) -> RValue {
-        // todo: l ok for refactors❗
-        let (fn_name, fn_params, fn_body) = match self.declaration.clone() {
+        // todo: look for refactors❗
+        let (fn_kind, fn_name, fn_params, fn_body) = match self.declaration.clone() {
             Statement::FunctionDeclaration {
+                kind,
                 name,
                 parameters,
                 body,
-            } => (name, parameters, body),
+            } => (kind, name, parameters, body),
             _ => unreachable!("only fn declaration!"),
         };
         /*
@@ -721,14 +732,29 @@ impl FnCallable for FunctionObject {
          * name and binds it to the argument’s value.
          */
 
-        interpreter.current_function_call = fn_name.clone();
+        interpreter.current_fn_call = fn_name.clone();
+        interpreter.current_fn_type = fn_kind.clone();
         interpreter
             .closures
             .insert(fn_name.clone(), Env::new(EnvKind::Closure(fn_name.clone())));
 
         // let closure_env = interpreter.closures.last_mut().unwrap();
         // let mut params_env = &self.closure;
-        let mut params_env = Env::new(EnvKind::Call(fn_name.clone()));
+        let last_env = if let Some(env) = interpreter.global_env.last() {
+            env
+        } else {
+            unreachable!("there is no global env defined!")
+        };
+
+        if last_env.kind != EnvKind::Call(fn_name.clone()) {
+            //? this mean verify if before entering this call
+            //? we already have a call env defined with SELF instance❗
+            interpreter
+                .global_env
+                .push(Env::new(EnvKind::Call(fn_name.clone())));
+        }
+
+        let call_env = interpreter.global_env.last_mut().unwrap();
         for (index, param) in fn_params.into_iter().enumerate() {
             let param_name = String::from(param);
             let argument_val = arguments.get(index).unwrap();
@@ -771,7 +797,7 @@ impl FnCallable for FunctionObject {
              * not at the function declaration.
              */
             //todo: remove duplication❗
-            params_env.define(param_name.clone(), argument_val.clone());
+            call_env.define(param_name.clone(), argument_val.clone());
             interpreter
                 .closures
                 .entry(fn_name.clone())
@@ -786,7 +812,7 @@ impl FnCallable for FunctionObject {
          * (We’ll add return values later.)
          */
 
-        interpreter.global_env.push(params_env);
+        // interpreter.global_env.push(call_env);
         let returned = interpreter.eval_block(fn_body)?;
         interpreter.global_env.pop();
         println!("<<< CALL out");
@@ -795,6 +821,12 @@ impl FnCallable for FunctionObject {
         for env in interpreter.global_env.iter() {
             println!("globals: {}", env);
         }
+
+        //? finishing call
+        //? an issue arise on recursive calls
+        //? maybe use an stack❓
+        // interpreter.current_function_call = Tk::Default;
+        // interpreter.current_function_type = FunType::None;
 
         match returned {
             V::Return(value) => Ok(*value),
@@ -812,6 +844,7 @@ impl FnCallable for FunctionObject {
          */
         match self.declaration.clone() {
             Statement::FunctionDeclaration {
+                kind: _,
                 name: _,
                 parameters,
                 body: _,
@@ -848,7 +881,7 @@ where
  */
 
 #[derive(Debug, Clone, PartialEq)]
-enum FunType {
+enum FnType {
     None,
     Function,
     Column,
@@ -878,7 +911,7 @@ struct Resolver<'a> {
      * index instead of using a map.
      */
     scopes: Vec<LocalBlockScope>,
-    current_function_type: FunType,
+    current_function_type: FnType,
     interpreter: &'a mut Interpreter,
 }
 
@@ -888,7 +921,7 @@ impl<'a> Resolver<'a> {
         Self {
             scopes: vec![],
             interpreter,
-            current_function_type: FunType::None,
+            current_function_type: FnType::None,
         }
     }
 
@@ -1038,8 +1071,9 @@ impl<'a> Resolver<'a> {
      * It creates a new scope for the body and then binds variables
      * for each of the function’s parameters.
      */
-    fn resolve_function_declaration(&mut self, declaration: Statement, kind: FunType) {
+    fn resolve_function_declaration(&mut self, declaration: Statement, kind: FnType) {
         if let Statement::FunctionDeclaration {
+            kind: _,
             name: _,
             parameters,
             body,
@@ -1088,6 +1122,7 @@ impl<'a> Resolver<'a> {
 impl ResolutionPass<Expr> for Resolver<'_> {
     fn resolve(&mut self, val: Expr) {
         match val.clone() {
+            Expr::This(keyword) => self.resolve_local_variable(val, keyword),
             /*
              * Again, like Expr.Get, the property itself is dynamically evaluated,
              * so there’s nothing to resolve there. All we need to do is recurse
@@ -1096,12 +1131,12 @@ impl ResolutionPass<Expr> for Resolver<'_> {
              * and the value it’s being set to.
              */
             Expr::SetProp {
-                expr,
-                name: _,
-                value,
+                identifier_expr,
+                prop_name: _,
+                expr_value,
             } => {
-                self.resolve(*value);
-                self.resolve(*expr);
+                self.resolve(*identifier_expr);
+                self.resolve(*expr_value);
             }
             /*
              * Since properties are looked up dynamically,
@@ -1113,7 +1148,7 @@ impl ResolutionPass<Expr> for Resolver<'_> {
              * in the interpreter.
              *
              */
-            Expr::GetProp(obj, _) => self.resolve(*obj),
+            Expr::GetProp(parent_id, _) => self.resolve(*parent_id),
             /*
              * Variable declarations—and function declarations,
              * which we’ll get to—write to the scope maps.
@@ -1228,6 +1263,20 @@ impl ResolutionPass<Statement> for Resolver<'_> {
                  */
                 self.declare_variable(name.clone());
                 self.define_variable(name);
+                /*
+                 * Before we step in and start resolving the method bodies,
+                 * we push a new scope and define “this” in it as if it were a variable.
+                 *
+                 * Then, when we’re done, we discard that surrounding scope.
+                 *
+                 * Now, whenever a this expression is encountered (at least inside a method)
+                 * it will resolve to a “local variable” defined in an implicit scope just
+                 * outside of the block for the method body.
+                 */
+                self.begin_scope();
+                if let Some(scope) = self.scopes.last_mut() {
+                    scope.insert(Tk::ThisTk.into(), true);
+                }
                 //? methods aka column
                 /*
                  * Storing the function type in a local variable is pointless right now,
@@ -1236,8 +1285,10 @@ impl ResolutionPass<Statement> for Resolver<'_> {
                  * "FunType::Column", That’s going to be important when we resolve this expressions.
                  */
                 for col in columns {
-                    self.resolve_function_declaration(col, FunType::Column)
+                    self.resolve_function_declaration(col, FnType::Column)
                 }
+
+                self.end_scope();
             }
             /*
              * A block statement introduces a new scope for the statements it contains.
@@ -1263,13 +1314,14 @@ impl ResolutionPass<Statement> for Resolver<'_> {
              * A function declaration introduces a new scope for its body and binds its parameters in that scope.
              */
             Statement::FunctionDeclaration {
+                kind: _,
                 name,
                 parameters: _,
                 body: _,
             } => {
                 self.declare_variable(name.clone());
                 self.define_variable(name);
-                self.resolve_function_declaration(val, FunType::Function);
+                self.resolve_function_declaration(val, FnType::Function);
             }
             /*
              * A variable declaration adds a new variable to the current scope.
@@ -1329,7 +1381,7 @@ impl ResolutionPass<Statement> for Resolver<'_> {
              * Same deal for return.
              */
             Statement::Return { keyword, value } => {
-                if self.current_function_type == FunType::None {
+                if self.current_function_type == FnType::None {
                     // report_err(stmt.keyword, "Can't return from top-level code.");
                     //todo: use lox::error_error instead of panic
                     /*
@@ -1377,7 +1429,8 @@ type LocalSideTable = HashMap<Expr, usize>;
 struct Interpreter {
     runtime_error: bool,
     global_env: Vec<Env>,
-    current_function_call: Tk,
+    current_fn_call: Tk,
+    current_fn_type: FnType,
     //? this is for keeping track the parent of function declaration
     functions_map: HashMap<Tk, Tk>,
     closures: HashMap<Tk, Env>,
@@ -1427,7 +1480,8 @@ impl Interpreter {
             global_env: vec![preludio, initial_env],
             closures: HashMap::new(),
             functions_map: HashMap::new(),
-            current_function_call: Tk::Default,
+            current_fn_call: Tk::Default,
+            current_fn_type: FnType::None,
             results: vec![],
             locals: HashMap::new(),
         }
@@ -1435,7 +1489,7 @@ impl Interpreter {
 
     fn eval(&mut self, statements: Vec<Statement>) {
         for (pos, state) in statements.iter().enumerate() {
-            println!("{pos} - EVAL: {state:?}");
+            println!("\n{pos} - Statement: {state:?}");
             let value = self.eval_statement(state.clone());
             match value {
                 Ok(_val) => (),
@@ -1467,7 +1521,7 @@ impl Interpreter {
         self.global_env.push(Env::new(EnvKind::Block));
         // println!(">>> new block {:?}", self.global_env);
         for (pos, state) in statements.iter().enumerate() {
-            println!("{pos} - BLOCK IN: {state:?}");
+            println!("\n{pos} - BLOCK IN: {state:?}");
             let returned = self.eval_statement(state.clone())?;
             if let V::Return(value) = returned {
                 self.global_env.pop();
@@ -1506,6 +1560,7 @@ impl Interpreter {
                 let mut behaviors = HashMap::new();
                 for column in columns {
                     if let Statement::FunctionDeclaration {
+                        kind: _,
                         name,
                         parameters: _,
                         body: _,
@@ -1533,6 +1588,7 @@ impl Interpreter {
                 Ok(V::Return(Box::new(evaluated_value)))
             }
             Statement::FunctionDeclaration {
+                kind,
                 name,
                 parameters,
                 body,
@@ -1544,6 +1600,7 @@ impl Interpreter {
                  * Here, that’s a CallableObject that wraps the syntax node.
                  */
                 let function = FunctionObject::new(Statement::FunctionDeclaration {
+                    kind,
                     name: name.clone(),
                     parameters,
                     body,
@@ -1556,7 +1613,7 @@ impl Interpreter {
                  * store a reference to it there.
                  */
                 self.functions_map
-                    .insert(name.clone(), self.current_function_call.clone());
+                    .insert(name.clone(), self.current_fn_call.clone());
                 self.define_declaration(name.clone(), V::Callable(Box::new(function)));
                 Ok(V::Done)
             }
@@ -1633,6 +1690,7 @@ impl Interpreter {
                 //todo: unir call y block, lo mejor seria solo usar el closure
                 //todo: por ahora hay duplicación❗
                 self.define_declaration(name, val);
+
                 Ok(V::Done)
             }
             Statement::None(msg) => unreachable!("{}", msg),
@@ -1671,33 +1729,47 @@ impl Interpreter {
                  * declared in the scope that environment corresponds to,
                  * the closure sees the new variable, even though the declaration does not precede the function.
                  */
-                println!("\ndefine declaration {name:?} in Closure");
                 //todo: remove duplication❗
                 self.closures
                     .entry(closure_name.clone())
                     .and_modify(|closure_env| closure_env.define(name.clone(), val.clone()));
-
                 call_environment.define(name.clone(), val.clone());
-                // for env in self.global_env.iter() {
-                //     println!("globals: {}", env);
-                // }
+                // todo: remove logs
+                for env in self.global_env.iter() {
+                    println!("- G: {}", env);
+                }
                 return;
             }
         }
 
         if let Some(environment) = self.global_env.last_mut() {
-            println!("\ndefine declaration {name:?} in {:?}", environment.kind);
+            // println!("\ndefine declaration {name:?} in {:?}", environment.kind);
             environment.define(name, val);
         }
-        // for env in self.global_env.iter() {
-        //     println!("globals: {}", env);
-        // }
+        for env in self.global_env.iter() {
+            println!("- G: {}", env);
+        }
     }
 
     fn eval_expr(&mut self, expr: Expr) -> RValue {
         // println!("{:?}", expr);
         match expr.clone() {
-            Expr::SetProp { expr, name, value } => {
+            /*
+             * The remaining task is interpreting those this expressions.
+             * Similar to the resolver,
+             * it is the same as interpreting a variable expression.
+             */
+            // Expr::This(keyword) => self.lookup_variable(keyword, expr),
+            Expr::This(keyword) => {
+                let value = self.lookup_variable(keyword, expr)?;
+                // println!("looked_up SELF: {value}:?");
+                Ok(value)
+            }
+            Expr::SetProp {
+                identifier_expr,
+                prop_name,
+                expr_value,
+            } => {
                 /*
                  * This is another semantic edge case. There are three distinct operations:
                  *
@@ -1709,23 +1781,38 @@ impl Interpreter {
                  * which means we need to carefully specify it and ensure our
                  * implementations do these in the same order.
                  */
-                let object = self.eval_expr(*expr)?;
-                if let V::Instance(mut obj) = object {
-                    let val = self.eval_expr(*value)?;
-                    obj.mut_prop(name, val.clone());
+                let id = match *identifier_expr.clone() {
+                    Expr::Let(to_identifier) => to_identifier,
+                    _ => unreachable!(),
+                };
+
+                let value_instance = self.eval_expr(*identifier_expr)?;
+                if let V::Instance(mut instance) = value_instance {
+                    let val = self.eval_expr(*expr_value)?;
+                    instance.mut_prop(prop_name, val.clone());
+                    //? reasignamos por que hacemos muchos clones
+                    //? y no mutamos una referencia❗
+                    // todo: refactor como referencia❓
+                    self.assign_variable(
+                        id,
+                        V::Instance(instance),
+                        //? esto lo manda directo a buscar en global_env
+                        // todo: esto se va romper si no esta en global❗
+                        Expr::None,
+                    )?;
                     Ok(val)
                 } else {
                     //*  "Only instances have fields."
-                    Err(Runtime::NotInstance(name))
+                    Err(Runtime::NotInstance(prop_name))
                 }
             }
-            Expr::GetProp(obj, prop_name) => {
+            Expr::GetProp(instance_expr, prop_name) => {
                 /*
                  * You can literally see that property dispatch
                  * in Lox is dynamic since we don’t process
                  * the property name during the static resolution pass.
                  */
-                let object = self.eval_expr(*obj)?;
+                let instance_value = self.eval_expr(*instance_expr)?;
                 /*
                  * First, we evaluate the expression whose property
                  * is being accessed. In Lox, only instances of
@@ -1733,9 +1820,8 @@ impl Interpreter {
                  * If the object is some other type like a number,
                  * invoking a getter on it is a runtime error.
                  */
-                if let V::Instance(boxed_instance) = object {
-                    let this_instance = Box::clone(&boxed_instance);
-                    boxed_instance.get_prop(self, prop_name, &this_instance)
+                if let V::Instance(boxed_instance) = instance_value {
+                    boxed_instance.get_prop(self, prop_name)
                 } else {
                     Err(Runtime::NotInstance(prop_name))
                 }
@@ -1807,7 +1893,7 @@ impl Interpreter {
                  * argument list is too short or too long.
                  */
                 // todo: do it in a generic way❗❓
-                let mut function: Box<dyn FnCallable> = match function_value {
+                let mut function: Box<dyn FnCallable> = match function_value.clone() {
                     V::Callable(function) => function,
                     V::Row(function) => function,
                     // V::NativeCallable(_) => self.call(function_value, argument_values),
@@ -1827,9 +1913,12 @@ impl Interpreter {
                         argument_list.len(),
                     ));
                 }
-                // println!("\n WiLL CALL {}::args{argument_list:?}", function);
+
+                //todo: how to implement display on a dyn trait❓
+                // println!("\n {function_value} CALL WITH {argument_list:?}");
+
                 let val = function.call(self, argument_list)?;
-                //? siempre deberia de haber un closure env
+
                 Ok(val)
             }
             Expr::Assign(to_identifier, right) => {
@@ -1846,7 +1935,7 @@ impl Interpreter {
             }
             Expr::Let(identifier) => {
                 let value = self.lookup_variable(identifier, expr)?;
-                println!("looked_up_variable: {value}:?");
+                // println!("looked_up_variable: {value}:?");
                 Ok(value)
             }
             Expr::Unary { operator, right } => {
@@ -1915,9 +2004,9 @@ impl Interpreter {
                 //? We could have instead specified that the left operand
                 //? is checked before even evaluating the right.
                 let left = self.eval_expr(*left)?;
-                println!("left: {:?}", left);
+                // println!("left: {:?}", left);
                 let right = self.eval_expr(*right)?;
-                println!("right: {:?}", right);
+                // println!("right: {:?}", right);
                 match (left, operator, right) {
                     // todo: +, /
                     /*
@@ -1985,20 +2074,18 @@ impl Interpreter {
 
             if let Some(env) = self.global_env.get_mut(index) {
                 // println!("\nlooking for: {identifier:?} ? -> {:?}", environment.kind);
-                println!("\nenv: {env}");
+                // println!("\nenv: {env}");
                 // todo: remove after depth testing
                 if env.kind == EnvKind::Global {
                     panic!("should not be global!")
                 }
                 //? looking up in closure
-                let current_fn_call = &self.current_function_call;
+                let current_fn_call = &self.current_fn_call;
                 if env.kind == EnvKind::Call(current_fn_call.clone()) {
-                    // println!("\n fns: {:?}", self.functions_table);
-                    // println!("\n closures: {:?}", self.closures);
                     if let Some(closure_name) = self.functions_map.get(current_fn_call) {
-                        println!("\nShould look in Closure: {closure_name:?}");
+                        // println!("\nShould look in Closure: {closure_name:?}");
                         if let Some(closure) = self.closures.get_mut(&closure_name.clone()) {
-                            println!("\nlooking for: {to_identifier:?} in {:?}", closure.kind);
+                            // println!("\nlooking for: {to_identifier:?} in {:?}", closure.kind);
                             if let Some(value) =
                                 closure.assign(to_identifier.clone(), value.clone())
                             {
@@ -2019,7 +2106,7 @@ impl Interpreter {
         } else {
             //? PRELUDE is At index: 0
             if let Some(globals) = self.global_env.get_mut(1) {
-                println!("\nassigning to: {to_identifier:?} ? -> {:?}", globals.kind);
+                // println!("\nassigning to: {to_identifier:?} ? -> {:?}", globals.kind);
                 if let Some(value) = globals.assign(to_identifier.clone(), value) {
                     Ok(value)
                 } else {
@@ -2033,6 +2120,43 @@ impl Interpreter {
 
     //todo: refactor❗
     fn lookup_variable(&mut self, identifier: Tk, expr: Expr) -> RValue {
+        // println!("- IN CALL {:?}", self.current_function_call);
+        // println!("- TYPE {:?}", self.current_function_type);
+        // println!("- FNS {:?}", self.functions_map);
+        for (tk, env) in self.closures.iter() {
+            println!("- CLOSURE: {tk:?} \n{env}");
+        }
+
+        match (&self.current_fn_type, &identifier) {
+            (FnType::Column, Tk::ThisTk) => {
+                let call_idx = self.global_env.len() - 2;
+                if let Some(environment) = self.global_env.get_mut(call_idx) {
+                    // println!("\nlooking for: {identifier:?} ? -> {:?}", environment.kind);
+                    // println!("\nenv: {environment}");
+                    // todo: remove after depth testing
+                    if environment.kind == EnvKind::Global {
+                        panic!("should not be global!")
+                    }
+                    //? continue with global_env
+                    if let Some(value) = environment.fetch(identifier.clone()) {
+                        return Ok(value);
+                    } else {
+                        unreachable!("SELF should be defined!")
+                    }
+                } else {
+                    unreachable!("an error in the resolver or the interpreter!")
+                }
+            }
+            (FnType::Column, _) => {
+                if let Some(closure) = self.closures.get(&self.current_fn_call) {
+                    // println!("\nLOOK: {identifier:?} in {closure}");
+                    if let Some(value) = closure.fetch(identifier.clone()) {
+                        return Ok(value);
+                    }
+                }
+            }
+            _ => (),
+        }
         /*
          * The interpreter code trusts that the resolver did its job
          * and resolved the variable correctly.
@@ -2046,8 +2170,8 @@ impl Interpreter {
             //? +1 PRELUDE +1 GLOBALS
             let mut index = 2 + (*distance);
             println!(
-                "\ncurrent: {:?}, total: {}, distance: {distance}, idx: {index} for {expr:?}",
-                self.current_function_call,
+                "\ncurrent call: {:?}, total: {}, distance: {distance}, idx: {index} for {expr:?}",
+                self.current_fn_call,
                 self.global_env.len()
             );
             /*
@@ -2064,7 +2188,7 @@ impl Interpreter {
                 if let EnvKind::Call(fn_name) = env.kind.clone() {
                     //? if next CAll is the same function call
                     //? it is a recursive call
-                    if fn_name == self.current_function_call {
+                    if fn_name == self.current_fn_call {
                         println!("tmp: {}", tmp - index);
                         index += tmp - index
                     } else {
@@ -2074,24 +2198,24 @@ impl Interpreter {
                 }
                 tmp += 1;
             }
-            println!("idx: {index}");
-            if let Some(environment) = self.global_env.get_mut(index) {
+            // println!("idx: {index}");
+            if let Some(env) = self.global_env.get_mut(index) {
                 // println!("\nlooking for: {identifier:?} ? -> {:?}", environment.kind);
-                println!("\nenv: {environment}");
+                // println!("\nenv: {environment}");
                 // todo: remove after depth testing
-                if environment.kind == EnvKind::Global {
+                if env.kind == EnvKind::Global {
                     panic!("should not be global!")
                 }
                 //? looking up in closure
-                let current_fn_call = &self.current_function_call;
-                if environment.kind == EnvKind::Call(current_fn_call.clone()) {
+                let current_fn_call = &self.current_fn_call;
+                if env.kind == EnvKind::Call(current_fn_call.clone()) {
                     // println!("\n fns: {:?}", self.functions_table);
                     // println!("\n closures: {:?}", self.closures);
                     if let Some(closure_name) = self.functions_map.get(current_fn_call) {
                         //? if tk:default -> then look up on GLOBALS
-                        println!("\nShould look in Closure: {closure_name:?}");
+                        // println!("\nShould look in Closure: {closure_name:?}");
                         if let Some(closure) = self.closures.get(&closure_name.clone()) {
-                            println!("\nlooking for: {identifier:?} in {:?}", closure.kind);
+                            // println!("\nlooking for: {identifier:?} in {:?}", closure.kind);
                             if let Some(value) = closure.fetch(identifier.clone()) {
                                 return Ok(value);
                             }
@@ -2099,7 +2223,7 @@ impl Interpreter {
                     }
                 }
                 //? continue with global_env
-                if let Some(value) = environment.fetch(identifier.clone()) {
+                if let Some(value) = env.fetch(identifier.clone()) {
                     Ok(value)
                 } else {
                     Err(Runtime::UndefinedVariable(identifier.into()))
@@ -2110,8 +2234,6 @@ impl Interpreter {
         } else {
             //? PRELUDE is At index: 0
             if let Some(globals) = self.global_env.get_mut(1) {
-                println!("\nlooking for: {identifier:?} In {:?}", globals.kind);
-                // println!("\nglobals: {globals}");
                 if let Some(value) = globals.fetch(identifier.clone()) {
                     Ok(value)
                 } else {
@@ -2136,7 +2258,7 @@ impl Interpreter {
     fn resolve_variable(&mut self, expr: Expr, depth: usize) {
         self.locals.insert(expr, depth);
         //? - [PRELUDE, GLOBALS, scope 0, scope 1, scope innermost 2....]
-        println!("\nlocals(expr,depth): {:?}", self.locals);
+        // println!("\nlocals(expr,depth): {:?}", self.locals);
     }
 }
 
@@ -2288,7 +2410,7 @@ impl Parser {
     fn declaration_or_statement(&mut self) -> RStatement {
         let result = match self.current_token {
             Tk::Class => self.class_declaration()?,
-            Tk::Fn => self.function_declaration(FunType::Function)?,
+            Tk::Fn => self.function_declaration(FnType::Function)?,
             Tk::Var => self.variable_declaration()?,
             _ => self.statement()?,
         };
@@ -2342,7 +2464,7 @@ impl Parser {
          * if the user has a syntax error and forgets to correctly end the class body.
          */
         while self.current_token != Tk::RBrace && self.current_token != Tk::End {
-            let function = self.function_declaration(FunType::Column)?;
+            let function = self.function_declaration(FnType::Column)?;
             if let Statement::None(_) = function {
                 //? Statement::None(_)
                 //? this is for the special case:
@@ -2380,16 +2502,16 @@ impl Parser {
      * When we get to classes, we’ll reuse that function rule for declaring methods.
      * Those look similar to function declarations, but aren’t preceded by fun.
      */
-    fn function_declaration(&mut self, kind: FunType) -> RStatement {
+    fn function_declaration(&mut self, kind: FnType) -> RStatement {
         self.consume_token();
         if self.current_token == Tk::RBrace {
             return Ok(Statement::None("non-function".into()));
         }
 
         let kind_string = match kind {
-            FunType::Column => "column",
-            FunType::Function => "function",
-            FunType::None => unreachable!("not a function type!"),
+            FnType::Column => "column",
+            FnType::Function => "function",
+            FnType::None => unreachable!("not a function type!"),
         };
 
         let name = if let Tk::Identifier(_, _) = self.current_token {
@@ -2469,6 +2591,7 @@ impl Parser {
         };
         // return new Stmt.Function(name, parameters, body);
         Ok(Statement::FunctionDeclaration {
+            kind,
             name,
             parameters,
             body,
@@ -2968,9 +3091,9 @@ impl Parser {
                  * into the correct syntax tree node for the assignment.
                  */
                 return Ok(Expr::SetProp {
-                    expr: get_expr,
-                    name: get_prop_name,
-                    value: Box::new(right_value),
+                    identifier_expr: get_expr,
+                    prop_name: get_prop_name,
+                    expr_value: Box::new(right_value),
                 });
             } else {
                 /*
@@ -3302,6 +3425,10 @@ impl Parser {
     fn primary(&mut self) -> Result<Expr> {
         //todo: how this clone, can affect❓
         match self.current_token.clone() {
+            Tk::ThisTk => {
+                self.consume_token();
+                Ok(Expr::This(self.prev_token.clone()))
+            }
             Tk::False => {
                 self.consume_token();
                 Ok(Expr::literal(false))
@@ -3429,6 +3556,81 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_class_this() {
+        //?1 class Cake {
+        //?2        taste() {
+        //?3            var adjective = 1000;
+        //?4            print adjetive;
+        //?5            print this.flavor;
+        //?6        }
+        //?7  }
+        //?8  var cake = Cake();
+        //?9  cake.flavor = 42;
+        //?10 cake.taste();
+        //* Prints "The German chocolate cake is delicious!".
+        let tokens = vec![
+            //?1 class Cake {
+            Tk::Class,
+            Tk::Identifier("Cake".into(), 1),
+            Tk::LBrace,
+            //?2        taste() {
+            Tk::Identifier("taste".into(), 2),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::LBrace,
+            //?3            var adjective = 1000;
+            Tk::Var,
+            Tk::Identifier("adjetive".into(), 3),
+            Tk::Assign,
+            Tk::Num(1000),
+            Tk::Semi,
+            //?4            print adjetive;
+            Tk::Print,
+            Tk::Identifier("adjetive".into(), 4),
+            Tk::Semi,
+            //?5            print this.flavor;
+            Tk::Print,
+            Tk::ThisTk,
+            Tk::Dot,
+            Tk::Identifier("flavor".into(), 5),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::RBrace,
+            //?8  var cake = Cake();
+            Tk::Var,
+            Tk::Identifier("cake".into(), 8),
+            Tk::Assign,
+            Tk::Identifier("Cake".into(), 8),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Semi,
+            //?9  cake.flavor = 42;
+            Tk::Identifier("cake".into(), 9),
+            Tk::Dot,
+            Tk::Identifier("flavor".into(), 9),
+            Tk::Assign,
+            Tk::Num(42),
+            Tk::Semi,
+            //?10 cake.taste();
+            Tk::Identifier("cake".into(), 10),
+            Tk::Dot,
+            Tk::Identifier("taste".into(), 10),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Semi,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![]);
+        let inter = test_run(environment, statements);
+
+        // todo: assert stdout
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(42)));
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(1_000)));
+    }
 
     #[test]
     fn test_class_methods() {
@@ -3560,6 +3762,7 @@ mod tests {
         behaviors.insert(
             "serveOn".to_string(),
             FunctionObject::new(Statement::FunctionDeclaration {
+                kind: FnType::Column,
                 name: Tk::Identifier("serveOn".into(), 2),
                 parameters: vec![],
                 body: vec![Statement::Return {
@@ -4699,7 +4902,7 @@ mod tests {
         // if (hadError) return;
         inter.eval(statements);
 
-        println!("\n{:?}", inter.current_function_call);
+        println!("\n{:?}", inter.current_fn_call);
         println!("\n{:?}", inter.functions_map);
         inter
     }
