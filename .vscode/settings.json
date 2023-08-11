@@ -7,6 +7,7 @@
     "combinators",
     "Earley",
     "falsey",
+    "feito",
     "fgetc",
     "fibo",
     "Hasher",

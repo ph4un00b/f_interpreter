@@ -450,8 +450,16 @@ enum Statement {
     None(String),
     Row {
         name: Tk,
+        /*
+         * You might be surprised that we store the superclass name as
+         * an Expr.Variable, not a Token.
+         * The grammar restricts the superclass clause to a single identifier,
+         * but at runtime, that identifier is evaluated as a variable access.
+         * Wrapping the name in an Expr.Variable early on in the parser gives us
+         * an object that the resolver can hang the resolution information off of.
+         */
         //? Expr.Variable
-        // parentRow: Expr,
+        super_expr: Expr,
         //? Stmt.Function
         columns: Vec<Statement>,
     },
@@ -642,6 +650,8 @@ pub struct RowObject {
      * they are still accessed through instances of that class.
      */
     behaviors: HashMap<String, FunctionObject>,
+    //? V::Row
+    super_row: Option<V>,
     /*
      * We have methods on instances, but there is no way to define “static” methods
      * that can be called directly on the class object itself.
@@ -701,8 +711,12 @@ impl Callable for RowObject {
 }
 
 impl RowObject {
-    fn new(name: Tk, behaviors: HashMap<String, FunctionObject>) -> Self {
-        Self { name, behaviors }
+    fn new(name: Tk, behaviors: HashMap<String, FunctionObject>, super_row: Option<V>) -> Self {
+        Self {
+            name,
+            behaviors,
+            super_row,
+        }
     }
 }
 
@@ -1413,7 +1427,7 @@ impl ResolutionPass<Statement> for Resolver<'_> {
         match val.clone() {
             Statement::Row {
                 name,
-                // parentRow,
+                super_expr,
                 columns,
             } => {
                 /*
@@ -1432,7 +1446,35 @@ impl ResolutionPass<Statement> for Resolver<'_> {
                  * but Lox permits it, so we need to handle it correctly.
                  */
                 self.declare_variable(name.clone());
-                self.define_variable(name);
+                self.define_variable(name.clone());
+                println!("{super_expr:?}");
+                match &super_expr {
+                    Expr::Let(super_name) => {
+                        if String::from(super_name.clone()) == String::from(name.clone()) {
+                            // Lox.error(stmt.superclass.name, "A class can't inherit from itself.");
+                            panic!("{super_name:?} A row can't inherit from itself.")
+                        }
+                    }
+                    Expr::None => (),
+                    _ => unreachable!("can be only a variable expression!"),
+                }
+
+                match &super_expr {
+                    Expr::None => (),
+                    /*
+                     * The class declaration AST node has a new sub-expression,
+                     * so we traverse into and resolve that.
+                     *
+                     * Since classes are usually declared at the top level,
+                     * the superclass name will most likely be a global variable,
+                     * so this doesn’t usually do anything useful.
+                     *
+                     * However, Lox allows class declarations even inside blocks,
+                     * so it’s possible the superclass name refers to a local variable.
+                     * In that case, we need to make sure it’s resolved.
+                     */
+                    _ => self.resolve(super_expr),
+                }
                 /*
                  * Before we step in and start resolving the method bodies,
                  * we push a new scope and define “this” in it as if it were a variable.
@@ -1702,6 +1744,7 @@ impl Interpreter {
                     Runtime::NotInstance(_) => todo!(),
                     Runtime::UndefinedProperty(_) => todo!(),
                     Runtime::NonCallable => todo!("non callable value"),
+                    Runtime::MustBeRow() => todo!("debe ser Row!"),
                 },
             }
         }
@@ -1751,9 +1794,34 @@ impl Interpreter {
         match state {
             Statement::Row {
                 name,
-                // parentRow,
+                super_expr,
                 columns,
             } => {
+                let super_value = if super_expr.clone() != Expr::None {
+                    /*
+                     * If the class has a superclass expression, we evaluate it.
+                     * Since that could potentially evaluate to some other kind
+                     * of object, we have to check at runtime that the thing
+                     * we want to be the superclass is actually a class.
+                     * Bad things would happen❗. . .
+                     */
+                    Some(self.eval_expr(super_expr.clone())?)
+                } else {
+                    None
+                };
+
+                //? si sabemos que no hay super solo es un noop
+                //? de otro modo verificamos si no es Row
+                //? tiramos error right away mf❗
+                //todo: huele a que hay un mejor refactor❗
+                if super_expr.clone() == Expr::None {
+                    ()
+                } else {
+                    let Some(V::Row(_)) = super_value else {
+                        return Err(Runtime::MustBeRow());
+                    };
+                }
+
                 self.define_declaration(name.clone(), V::Done);
                 //? por que no lo definimos en seguida❓
                 //? por que vamos a definir los métodos❗
@@ -1783,7 +1851,11 @@ impl Interpreter {
                         unreachable!("not a function declaration!")
                     }
                 }
-                let row = V::Row(Box::new(RowObject::new(name.clone(), behaviors)));
+                let row = V::Row(Box::new(RowObject::new(
+                    name.clone(),
+                    behaviors,
+                    super_value,
+                )));
                 self.assign_variable(name, row, Expr::None)?;
                 Ok(V::Done)
             }
@@ -2522,6 +2594,7 @@ pub enum Runtime {
     NotInstance(Tk),
     UndefinedProperty(Tk),
     NonCallable,
+    MustBeRow(),
 }
 
 use std::result::Result as StdResult;
@@ -2627,7 +2700,6 @@ impl Parser {
         Ok(result)
     }
 
-    // * classDecl      → "class" IDENTIFIER "{" function* "}" ;
     /*
      * In plain English, a class declaration is the class keyword,
      * followed by the class’s name, then a curly-braced body.
@@ -2635,6 +2707,12 @@ impl Parser {
      * Unlike function declarations, methods don’t have a leading fun keyword.
      * Each method is a name, parameter list, and body.
      */
+    /*
+     * Unlike some other object-oriented languages like Java, Lox has no root “Object”
+     * class that everything inherits from, so when you omit the superclass clause,
+     * the class has no superclass, not even an implicit one.
+     */
+    // * classDecl → ""class" IDENTIFIER ( "<" IDENTIFIER ) ? "{" function* "}" ;
     fn class_declaration(&mut self) -> RStatement {
         // Token name = consume(IDENTIFIER, "Expect class name.");
         self.consume_token();
@@ -2649,8 +2727,27 @@ impl Parser {
             );
             self.current_token.clone()
         };
-        // consume(LEFT_BRACE, "Expect '{' before class body.");
+
+        //? Expr.Variable superclass = null;
+        //? if (match(LESS)) {
+        //?   consume(IDENTIFIER, "Expect superclass name.");
+        //?   superclass = new Expr.Variable(previous());
+        //? }
         self.consume_token();
+        // todo: esta feito, buscar un buen refactor❗
+        let super_expr = if self.current_token == Tk::LT {
+            self.consume_token();
+            self.consume_token();
+            if let Tk::Identifier(_, _) = self.prev_token {
+                Expr::Let(self.prev_token.clone())
+            } else {
+                Expr::None
+            }
+        } else {
+            Expr::None
+        };
+
+        //? consume(LEFT_BRACE, "Expect '{' before class body.");
         if self.current_token != Tk::LBrace {
             // todo: test err❗
             report_err(
@@ -2695,7 +2792,16 @@ impl Parser {
         }
         self.consume_token();
         // return new Stmt.Class(name, methods);
-        Ok(Statement::Row { name, columns })
+        Ok(Statement::Row {
+            name,
+            columns,
+            /*
+             * If we didn’t parse a superclass clause, the superclass expression
+             * will be Expr::None. We’ll have to make sure the later passes check for that.
+             * The first of those is the resolver.
+             */
+            super_expr,
+        })
     }
 
     // * funDecl        → "fun" function ;
@@ -3777,6 +3883,47 @@ mod tests {
     use super::*;
 
     #[test]
+    #[should_panic = "debe ser Row!"]
+    fn test_cannot_inherit_from_non_row_value() {
+        let tokens = vec![
+            //? var NotAClass = 1_000;
+            //? class Subclass < NotAClass {}
+            Tk::Var,
+            Tk::Identifier("NotAClass".into(), 1),
+            Tk::Assign,
+            Tk::Num(1_000),
+            Tk::Semi,
+            //? class Subclass < NotAClass {}
+            Tk::Class,
+            Tk::Identifier("Subclass".into(), 2),
+            Tk::LT,
+            Tk::Identifier("NotAClass".into(), 2),
+            Tk::LBrace,
+            Tk::RBrace,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![]);
+        let _ = test_run(environment, statements);
+    }
+
+    #[test]
+    #[should_panic = "Identifier(\"Oops\", 1) A row can't inherit from itself."]
+    fn test_cannot_inherit_itself() {
+        let tokens = vec![
+            //? class Oops < Oops {}
+            Tk::Class,
+            Tk::Identifier("Oops".into(), 1),
+            Tk::LT,
+            Tk::Identifier("Oops".into(), 1),
+            Tk::LBrace,
+            Tk::RBrace,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![]);
+        let _ = test_run(environment, statements);
+    }
+
+    #[test]
     #[should_panic = "Return(3), Can't return a value from an initializer."]
     fn test_constructor_call_returns_instance_3() {
         //?1 class Foo {
@@ -3805,7 +3952,7 @@ mod tests {
         let (statements, environment) = test_setup(tokens, vec![]);
         let inter = test_run(environment, statements);
 
-        let mut row = RowObject::new(Tk::Identifier("Foo".into(), 1), HashMap::new());
+        let mut row = RowObject::new(Tk::Identifier("Foo".into(), 1), HashMap::new(), None);
         row.behaviors.insert(
             String::from("new"),
             FunctionObject::new(
@@ -3907,7 +4054,7 @@ mod tests {
         let (statements, environment) = test_setup(tokens, vec![]);
         let inter = test_run(environment, statements);
 
-        let mut row = RowObject::new(Tk::Identifier("Foo".into(), 1), HashMap::new());
+        let mut row = RowObject::new(Tk::Identifier("Foo".into(), 1), HashMap::new(), None);
         row.behaviors.insert(
             String::from("new"),
             FunctionObject::new(
@@ -4121,7 +4268,8 @@ mod tests {
                 "print".into(),
                 V::Instance(Box::new(InstanceObject::new(RowObject::new(
                     Tk::Identifier("Bagel".into(), 1),
-                    HashMap::new()
+                    HashMap::new(),
+                    None
                 ))))
             )
         );
@@ -4186,7 +4334,8 @@ mod tests {
                 "print".into(),
                 V::Row(Box::new(RowObject {
                     name: Tk::Identifier("DevonshireCream".into(), 1),
-                    behaviors
+                    behaviors,
+                    super_row: None
                 }))
             )
         );
