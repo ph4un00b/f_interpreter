@@ -113,6 +113,10 @@ enum Expr {
         expr_value: Box<Expr>,
     },
     This(Tk),
+    Super {
+        keyword: Tk,
+        behavior: Tk,
+    },
     None,
 }
 
@@ -301,6 +305,7 @@ impl From<Tk> for String {
             Tk::Comma => ",".to_string(),
             Tk::Dot => ".".to_string(),
             Tk::ThisTk => "SELF".to_string(),
+            Tk::Super => "super".to_string(),
         }
     }
 }
@@ -314,6 +319,7 @@ pub enum Tk {
     Float(String),
     Identifier(String, u32),
     Return(u32),
+    Super,
     Comma,
     Assign,
     Sub,
@@ -438,6 +444,10 @@ impl fmt::Display for Expr {
                 expr_value: value,
             } => write!(f, "> {expr} SET {name:?} = {value}")?,
             Expr::This(_) => write!(f, "@")?,
+            Expr::Super {
+                keyword: _,
+                behavior,
+            } => write!(f, "SUPER.{behavior:?}")?,
         }
 
         Ok(())
@@ -747,7 +757,12 @@ impl std::hash::Hash for RowObject {
 
 impl fmt::Display for RowObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "<row {}>", String::from(self.name.clone()))?;
+        if let Some(V::Row(func)) = &self.super_row {
+            let parent = String::from(func.name.clone());
+            write!(f, "<row {parent}::{}>", String::from(self.name.clone()))?;
+        } else {
+            write!(f, "<row {}>", String::from(self.name.clone()))?;
+        }
         Ok(())
     }
 }
@@ -759,6 +774,7 @@ pub struct FunctionObject {
     // * If the function is an initializer,
     // * we override the actual return value and forcibly return it's instance.
     is_constructor: bool,
+    environment: Option<Env>,
 }
 
 impl std::hash::Hash for FunctionObject {
@@ -769,15 +785,17 @@ impl std::hash::Hash for FunctionObject {
 }
 
 impl FunctionObject {
-    fn new(declaration: Statement, is_constructor: bool) -> Self {
+    fn new(declaration: Statement, environment: Option<Env>, is_constructor: bool) -> Self {
         //todo: this should be only for Statement::Function❗
         Self {
             declaration,
             is_constructor,
+            environment,
         }
     }
 
-    fn bind_instance(&self, interpreter: &mut Interpreter, value: &V) -> V {
+    // todo: quizá remover interprete❗
+    fn bind_instance(&self, _interpreter: &mut Interpreter, value: &V) -> V {
         let fn_name = match self.declaration.clone() {
             Statement::FunctionDeclaration {
                 kind: _,
@@ -787,19 +805,35 @@ impl FunctionObject {
             } => name,
             _ => todo!(),
         };
-        println!("CREATE CALL ENV FOR {fn_name:?}");
-        let mut call_env = Env::new(EnvKind::Call(fn_name.clone()));
-        call_env.define(Tk::ThisTk.into(), value.clone());
-        interpreter.global_env.push(call_env);
-        /*
-         * And then in bind() where we create the closure that binds this to
-         * a method, we pass along the original method’s value.
-         */
-        //todo: add closure
-        V::Func(Box::new(FunctionObject::new(
-            self.declaration.clone(),
-            self.is_constructor,
-        )))
+        println!("BINDING THIS CALL ENV FOR {fn_name:?}");
+        //? tenemos definido SUPER si antes si lo hay❗
+        if let Some(mut env_with_super) = self.environment.clone() {
+            env_with_super.define(Tk::ThisTk.into(), value.clone());
+            /*
+             * And then in bind() where we create the closure that binds this to
+             * a method, we pass along the original method’s value.
+             */
+            //todo: add closure
+            V::Func(Box::new(FunctionObject::new(
+                self.declaration.clone(),
+                Some(env_with_super.clone()),
+                self.is_constructor,
+            )))
+        } else {
+            let mut env_with_this = Env::new(EnvKind::Call(fn_name.clone()));
+            env_with_this.define(Tk::ThisTk.into(), value.clone());
+            // interpreter.global_env.push(call_env);
+            /*
+             * And then in bind() where we create the closure that binds this to
+             * a method, we pass along the original method’s value.
+             */
+            //todo: add closure
+            V::Func(Box::new(FunctionObject::new(
+                self.declaration.clone(),
+                Some(env_with_this),
+                self.is_constructor,
+            )))
+        }
     }
 }
 
@@ -868,17 +902,11 @@ impl Callable for FunctionObject {
             .closures
             .insert(fn_name.clone(), Env::new(EnvKind::Closure(fn_name.clone())));
 
-        // let closure_env = interpreter.closures.last_mut().unwrap();
-        // let mut params_env = &self.closure;
-        let last_env = if let Some(env) = interpreter.global_env.last() {
-            env
+        //? aquí debemos verificar si no tenemos ya
+        //? un env definido con this o con this & self❗
+        if let Some(env) = &self.environment {
+            interpreter.global_env.push(env.clone());
         } else {
-            unreachable!("there is no global env defined!")
-        };
-
-        if last_env.kind != EnvKind::Call(fn_name.clone()) {
-            //? this mean verify if before entering this call
-            //? we already have a call env defined with SELF instance❗
             interpreter
                 .global_env
                 .push(Env::new(EnvKind::Call(fn_name.clone())));
@@ -1304,6 +1332,16 @@ impl<'a> Resolver<'a> {
 impl ResolutionPass<Expr> for Resolver<'_> {
     fn resolve(&mut self, val: Expr) {
         match val.clone() {
+            /*
+             * We resolve the super token exactly as if it were a variable.
+             * The resolution stores the number of hops along the environment
+             * chain that the interpreter needs to walk to find the environment
+             * where the superclass is stored.
+             */
+            Expr::Super {
+                keyword,
+                behavior: _,
+            } => self.resolve_local_variable(val, keyword),
             Expr::This(keyword) => {
                 if self.current_row_type == RowType::None {
                     /*
@@ -1492,7 +1530,18 @@ impl ResolutionPass<Statement> for Resolver<'_> {
                      * so it’s possible the superclass name refers to a local variable.
                      * In that case, we need to make sure it’s resolved.
                      */
-                    _ => self.resolve(super_expr),
+                    _ => self.resolve(super_expr.clone()),
+                }
+
+                /*
+                 * Before we can get to creating the environment at runtime,
+                 * we need to handle the corresponding scope chain in the resolver.
+                 */
+                if super_expr != Expr::None {
+                    self.begin_scope();
+                    if let Some(scope) = self.scopes.last_mut() {
+                        scope.insert(Tk::Super.into(), true);
+                    }
                 }
                 /*
                  * Before we step in and start resolving the method bodies,
@@ -1536,6 +1585,25 @@ impl ResolutionPass<Statement> for Resolver<'_> {
                 }
 
                 self.end_scope();
+                /*
+                 * If the class declaration has a superclass,
+                 * then we create a new scope surrounding all of its methods.
+                 *
+                 * In that scope, we define the name “super”.
+                 * Once we’re done resolving the class’s methods, we discard that scope.
+                 */
+                if super_expr != Expr::None {
+                    /*
+                     * It’s a minor optimization, but we only create the
+                     * superclass environment if the class actually has a superclass.
+                     * There’s no point creating it when there isn’t a superclass
+                     * since there’d be no superclass to store in it anyway.
+                     */
+                    // todo: maybe there is a good semantic
+                    // todo: to arise a compile error is some scope is not ended❗❓
+                    // todo: or maybe in a new lang 😏
+                    self.end_scope();
+                }
                 /*
                  * Once the methods have been resolved,
                  * we “pop” that stack by restoring the old value.
@@ -1816,7 +1884,7 @@ impl Interpreter {
                 super_expr,
                 columns,
             } => {
-                let super_value = if super_expr.clone() != Expr::None {
+                let maybe_super = if super_expr.clone() != Expr::None {
                     /*
                      * If the class has a superclass expression, we evaluate it.
                      * Since that could potentially evaluate to some other kind
@@ -1836,46 +1904,115 @@ impl Interpreter {
                 if super_expr.clone() == Expr::None {
                     ()
                 } else {
-                    let Some(V::Row(_)) = super_value else {
+                    let Some(V::Row(_)) = maybe_super else {
                         return Err(Runtime::MustBeRow());
                     };
                 }
-
-                self.define_declaration(name.clone(), V::Done);
+                self.environment_define(name.clone(), V::Done);
                 //? por que no lo definimos en seguida❓
                 //? por que vamos a definir los métodos❗
                 let mut behaviors = HashMap::new();
-                for behavior_declaration in columns {
-                    if let Statement::FunctionDeclaration {
-                        kind: _,
-                        name,
-                        parameters: _,
-                        body: _,
-                    } = behavior_declaration.clone()
-                    {
-                        let behavior_name = String::from(name);
-                        /*
-                         * When we interpret a class declaration statement, we turn the syntactic
-                         * representation of the class—its AST node—into its runtime representation.
-                         * Now, we need to do that for the methods contained in the class as well.
-                         * Each method declaration blossoms into a LoxFunction object.
-                         *
-                         * For actual function declarations, isInitializer is always false.
-                         * For methods, we check the name.
-                         */
-                        let function =
-                            FunctionObject::new(behavior_declaration, behavior_name.eq(&"new"));
-                        behaviors.insert(behavior_name, function);
-                    } else {
-                        unreachable!("not a function declaration!")
+                if let Some(value) = &maybe_super {
+                    for behavior_declaration in columns {
+                        if let Statement::FunctionDeclaration {
+                            kind: _,
+                            name,
+                            parameters: _,
+                            body: _,
+                        } = behavior_declaration.clone()
+                        {
+                            let behavior_name = String::from(name.clone());
+                            /*
+                             * When we interpret a class declaration statement, we turn the syntactic
+                             * representation of the class—its AST node—into its runtime representation.
+                             * Now, we need to do that for the methods contained in the class as well.
+                             * Each method declaration blossoms into a LoxFunction object.
+                             *
+                             * For actual function declarations, isInitializer is always false.
+                             * For methods, we check the name.
+                             */
+                            //? en funciones normales nosotros no pasamos ningún environment❗
+                            //? mantenemos un stack global
+                            //? pero en este caso, si le vamos a pasar un env
+
+                            //? LoxFunction function = new LoxFunction(method, environment,
+                            //? method.name.lexeme.equals("init"));
+                            /*
+                             * The resolver code is mirrored in the interpreter.
+                             * When we evaluate a subclass definition, we create a new environment.
+                             *
+                             * Inside that environment, we store a reference to the superclass—the
+                             * actual LoxClass object for the superclass which we have now
+                             * that we are in the runtime. Then we create the LoxFunctions for each method.
+                             * Those will capture the current environment—the one where we just
+                             * bound “super”—as their closure, holding on to the superclass like we need.
+                             */
+                            let mut env_with_super = Env::new(EnvKind::Call(name));
+                            env_with_super.define(Tk::Super.into(), value.clone());
+                            let function = FunctionObject::new(
+                                behavior_declaration,
+                                //? este env se lo vamos a pasar a los behaviors❗
+                                Some(env_with_super),
+                                behavior_name.eq(&"new"),
+                            );
+                            behaviors.insert(behavior_name, function);
+                        } else {
+                            unreachable!("not a function declaration!")
+                        }
                     }
-                }
+                    // panic!("behavior with SUPER!");
+                } else {
+                    for behavior_declaration in columns {
+                        if let Statement::FunctionDeclaration {
+                            kind: _,
+                            name,
+                            parameters: _,
+                            body: _,
+                        } = behavior_declaration.clone()
+                        {
+                            let behavior_name = String::from(name);
+                            /*
+                             * When we interpret a class declaration statement, we turn the syntactic
+                             * representation of the class—its AST node—into its runtime representation.
+                             * Now, we need to do that for the methods contained in the class as well.
+                             * Each method declaration blossoms into a LoxFunction object.
+                             *
+                             * For actual function declarations, isInitializer is always false.
+                             * For methods, we check the name.
+                             */
+                            //? nosotros no pasamos ningún environment❗
+                            //? mantenemos un stack global
+
+                            //? LoxFunction function = new LoxFunction(method, environment,
+                            //? method.name.lexeme.equals("init"));
+                            let function = FunctionObject::new(
+                                behavior_declaration,
+                                None,
+                                behavior_name.eq(&"new"),
+                            );
+                            behaviors.insert(behavior_name, function);
+                        } else {
+                            unreachable!("not a function declaration!")
+                        }
+                    }
+                };
+
                 let row = V::Row(Box::new(RowObject::new(
                     name.clone(),
                     behaviors,
-                    super_value,
+                    maybe_super,
                 )));
-                self.assign_variable(name, row, Expr::None)?;
+
+                // if super_expr != Expr::None {
+                /*
+                 * Once that’s done, we pop the child environment.❗
+                 */
+                //? esto ya nolo hacemos si no borraríamos GLOBAL env❗
+                // }
+                self.environment_assign(name, row, Expr::None)?;
+                for env in self.global_env.iter() {
+                    println!("- G: {}", env);
+                }
                 Ok(V::Done)
             }
             Statement::Return { keyword: _, value } => {
@@ -1902,6 +2039,7 @@ impl Interpreter {
                         parameters,
                         body,
                     },
+                    None,
                     false,
                 );
                 /*
@@ -1913,7 +2051,7 @@ impl Interpreter {
                  */
                 self.functions_map
                     .insert(name.clone(), self.current_fn_call.clone());
-                self.define_declaration(name.clone(), V::Func(Box::new(function)));
+                self.environment_define(name.clone(), V::Func(Box::new(function)));
                 Ok(V::Done)
             }
             Statement::While { condition, body } => {
@@ -1988,7 +2126,7 @@ impl Interpreter {
                 //? usar el env closure, para los dos, sera❓
                 //todo: unir call y block, lo mejor seria solo usar el closure
                 //todo: por ahora hay duplicación❗
-                self.define_declaration(name, val);
+                self.environment_define(name, val);
 
                 Ok(V::Done)
             }
@@ -1996,7 +2134,7 @@ impl Interpreter {
         }
     }
 
-    fn define_declaration(&mut self, name: Tk, val: V) {
+    fn environment_define(&mut self, name: Tk, val: V) {
         /*
         todo: test ->
         * var a;
@@ -2053,6 +2191,89 @@ impl Interpreter {
     fn eval_expr(&mut self, expr: Expr) -> RValue {
         // println!("{:?}", expr);
         match expr.clone() {
+            Expr::Super {
+                keyword: _,
+                behavior,
+            } => {
+                if let Some(distance) = self.locals.get(&expr) {
+                    //? +1 PRELUDE +1 GLOBALS
+                    let index = 2 + (*distance);
+                    println!(
+                        "\ntotal: {}, distance: {distance}, idx: {index} for {expr:?}",
+                        self.global_env.len()
+                    );
+
+                    /*
+                     * First, the work we’ve been leading up to.
+                     * We look up the surrounding class’s superclass by
+                     * looking up “super” in the proper environment.
+                     */
+                    for env in self.global_env.iter() {
+                        println!("- G: {}", env);
+                    }
+                    // todo buscar unos buenos refactors❗
+                    let parent = if let Some(env) = self.global_env.get_mut(index) {
+                        // todo: remove after depth testing
+                        if env.kind == EnvKind::Global {
+                            panic!("should not be global!")
+                        }
+                        let Some(V::Row(obj)) = env.fetch(Tk::Super) else {
+                            unreachable!("should be row!")
+                        };
+                        obj
+                    } else {
+                        unreachable!("Super debe estar definido!")
+                    };
+                    /*
+                     * Unfortunately, inside the super expression,
+                     * we don’t have a convenient node for the resolver to hang
+                     * the number of hops to this on.
+                     * Fortunately, we do control the layout of the environment chains.
+                     * The environment where “this” is bound is always right
+                     * inside the environment where we store “super”.
+                     *
+                     * Offsetting the distance by one looks up “this” in that inner environment.
+                     * I admit this isn’t the most elegant code, but it works.
+                     *
+                     *  an “exercise for the reader”.
+                     */
+                    //? this instance is in the same env❗
+                    let instancia = if let Some(env) = self.global_env.get_mut(index) {
+                        // todo: remove after depth testing
+                        if env.kind == EnvKind::Global {
+                            panic!("should not be global!")
+                        }
+                        let Some(value) = env.fetch(Tk::ThisTk) else {
+                            unreachable!("should be instance!")
+                        };
+                        value
+                    } else {
+                        unreachable!("this debe estar definido!")
+                    };
+
+                    let key = String::from(behavior.clone());
+                    /*
+                     * Now we’re ready to look up and bind the method, starting at the superclass.
+                     *
+                     * This is almost exactly like the code for looking up a method of a
+                     * get expression, except that we call findMethod()
+                     * on the superclass instead of on the class of the current object.
+                     */
+                    let func = if parent.behaviors.contains_key(&key) {
+                        parent.behaviors.get(&key).unwrap()
+                    } else {
+                        /*
+                         * of course, that we might fail to find the method.
+                         * So we check for that too.
+                         */
+                        return Err(Runtime::UndefinedProperty(behavior.clone()));
+                    };
+                    let func_value = func.bind_instance(self, &instancia);
+                    Ok(func_value)
+                } else {
+                    unreachable!("an error in the resolver or the interpreter!")
+                }
+            }
             /*
              * The remaining task is interpreting those this expressions.
              * Similar to the resolver,
@@ -2092,7 +2313,7 @@ impl Interpreter {
                     //? reasignamos por que hacemos muchos clones
                     //? y no mutamos una referencia❗
                     // todo: refactor como referencia❓
-                    self.assign_variable(
+                    self.environment_assign(
                         id,
                         V::Instance(instance),
                         //? esto lo manda directo a buscar en global_env
@@ -2230,7 +2451,7 @@ impl Interpreter {
                  */
                 //? var a = 1;
                 // todo: print a = 2; // "2".
-                self.assign_variable(to_identifier, value, expr)
+                self.environment_assign(to_identifier, value, expr)
             }
             Expr::Let(identifier) => {
                 let value = self.lookup_variable(identifier, expr)?;
@@ -2362,7 +2583,7 @@ impl Interpreter {
     }
 
     //todo: refactor❗
-    fn assign_variable(&mut self, to_identifier: Tk, value: V, expr: Expr) -> RValue {
+    fn environment_assign(&mut self, to_identifier: Tk, value: V, expr: Expr) -> RValue {
         if let Some(distance) = self.locals.get(&expr) {
             //? +1 PRELUDE +1 GLOBALS
             let index = 2 + (*distance);
@@ -2852,7 +3073,7 @@ impl Parser {
         let name = if let Tk::Identifier(_, _) = self.current_token {
             self.current_token.clone()
         } else {
-            self.report_and_consume(
+            self.check_and_consume(
                 Tk::Lpar,
                 format!("Expected {} name!.", kind_string).as_str(),
             );
@@ -2860,7 +3081,7 @@ impl Parser {
         };
         // consume(LEFT_PAREN, "Expect '(' after " + kind + " name.");
         self.consume_token();
-        self.report_and_consume(
+        self.check_and_consume(
             Tk::Lpar,
             format!("Expect '(' after {} name.", kind_string).as_str(),
         );
@@ -2889,7 +3110,7 @@ impl Parser {
                 let parameter_identifier = if let Tk::Identifier(_, _) = self.current_token {
                     self.current_token.clone()
                 } else {
-                    self.report_and_consume(
+                    self.check_and_consume(
                         Tk::Identifier("parameter".to_string(), 0),
                         "Expect parameter name",
                     );
@@ -2904,7 +3125,7 @@ impl Parser {
             }
         };
         // consume(RIGHT_PAREN, "Expect ')' after parameters.");
-        self.report_and_consume(Tk::Rpar, "Expect ')' after parameters.");
+        self.check_and_consume(Tk::Rpar, "Expect ')' after parameters.");
         /*
          * Note that we consume the { at the beginning of the body here before calling block().
          * That’s because block() assumes the brace token has already been matched.
@@ -2981,7 +3202,7 @@ impl Parser {
          * of the statement. All this gets wrapped in a Stmt.Var
          * syntax tree node and we’re groovy
          */
-        self.report_and_consume(Tk::Semi, "👀 expected ';' after expression");
+        self.check_and_consume(Tk::Semi, "👀 expected ';' after expression");
 
         Ok(Statement::LetDeclaration {
             name: result_token,
@@ -3064,7 +3285,7 @@ impl Parser {
             Expr::None
         };
         // consume(SEMICOLON, "Expect ';' after return value.");
-        self.report_and_consume(Tk::Semi, "Expect ';' after return value.");
+        self.check_and_consume(Tk::Semi, "Expect ';' after return value.");
         // return new Stmt.Return(keyword, value);
         Ok(Statement::Return { keyword, value })
     }
@@ -3090,7 +3311,7 @@ impl Parser {
          */
         self.consume_token();
         // consume(LEFT_PAREN, "Expect '(' after 'for'.");
-        self.report_and_consume(Tk::Lpar, "Expect '(' after 'for'");
+        self.check_and_consume(Tk::Lpar, "Expect '(' after 'for'");
         // Stmt initializer;
         // if (match(SEMICOLON)) {
         //   initializer = null;
@@ -3119,7 +3340,7 @@ impl Parser {
             Expr::None
         };
         // consume(SEMICOLON, "Expect ';' after loop condition.");
-        self.report_and_consume(Tk::Semi, "Expect ';' after 'loop condition'");
+        self.check_and_consume(Tk::Semi, "Expect ';' after 'loop condition'");
         //? Again, we look for a semicolon to see if the clause has been omitted.
         //? The last clause is the increment.
         // Expr increment = null;
@@ -3132,7 +3353,7 @@ impl Parser {
             Expr::None
         };
         // consume(RIGHT_PAREN, "Expect ')' after for clauses.");
-        self.report_and_consume(Tk::Rpar, "Expect ')' after 'for clauses'");
+        self.check_and_consume(Tk::Rpar, "Expect ')' after 'for clauses'");
         //? It’s similar to the condition clause except this one is
         //? terminated by the closing parenthesis.
         //? All that remains is the body. 😏
@@ -3212,11 +3433,11 @@ impl Parser {
     fn while_statement(&mut self) -> RStatement {
         self.consume_token();
         // consume(LEFT_PAREN, "Expect '(' after 'while'.");
-        self.report_and_consume(Tk::Lpar, "Expect '(' after 'while'");
+        self.check_and_consume(Tk::Lpar, "Expect '(' after 'while'");
         // Expr condition = expression();
         let condition = self.expression()?;
         // consume(RIGHT_PAREN, "Expect ')' after condition.");
-        self.report_and_consume(Tk::Rpar, "Expect ')' after 'while'");
+        self.check_and_consume(Tk::Rpar, "Expect ')' after 'while'");
         // Stmt body = statement();
         let body = self.statement()?;
         // return new Stmt.While(condition, body);
@@ -3237,7 +3458,7 @@ impl Parser {
     fn conditional_statement(&mut self) -> RStatement {
         self.consume_token();
         // consume(LEFT_PAREN, "Expect '(' after 'if'.");
-        self.report_and_consume(Tk::Lpar, "Expect '(' after 'if'");
+        self.check_and_consume(Tk::Lpar, "Expect '(' after 'if'");
         // Expr condition = expression();
         let condition = self.expression()?;
         /*
@@ -3249,7 +3470,7 @@ impl Parser {
          * statement to tell when the condition is done.
          */
         // consume(RIGHT_PAREN, "Expect ')' after if condition.");
-        self.report_and_consume(Tk::Rpar, "Expect ')' after if condition");
+        self.check_and_consume(Tk::Rpar, "Expect ')' after if condition");
         // Stmt thenBranch = statement();
         let then_statement = Box::new(self.statement()?);
         // Stmt elseBranch = null;
@@ -3310,7 +3531,7 @@ impl Parser {
         let value = self.expression()?;
         println!("{:?}", value);
         // consume(SEMICOLON, "Expect ';' after value.");
-        self.report_and_consume(Tk::Semi, "👀 expected ';' after value");
+        self.check_and_consume(Tk::Semi, "👀 expected ';' after value");
         // return new Stmt.Print(value);
         Ok(Statement::Print(value))
     }
@@ -3319,7 +3540,7 @@ impl Parser {
         // Expr expr = expression();
         let value = self.expression()?;
         // consume(SEMICOLON, "Expect ';' after expression.");
-        self.report_and_consume(Tk::Semi, "👀 expected ';' after expression");
+        self.check_and_consume(Tk::Semi, "👀 expected ';' after expression");
         // return new Stmt.Expression(expr);
         Ok(Statement::Expr(value))
     }
@@ -3343,7 +3564,7 @@ impl Parser {
             result.push(self.declaration_or_statement()?);
         }
 
-        self.report_and_consume(Tk::RBrace, "Expect '}' after block 👀❗");
+        self.check_and_consume(Tk::RBrace, "Expect '}' after block 👀❗");
         Ok(result)
     }
 
@@ -3728,7 +3949,7 @@ impl Parser {
          */
         // Token paren = consume(RIGHT_PAREN,
         //               "Expect ')' after arguments.");
-        self.report_and_consume(Tk::Rpar, "Expect ')' after arguments.");
+        self.check_and_consume(Tk::Rpar, "Expect ')' after arguments.");
         // return new Expr.Call(callee, paren, arguments);
         Ok(Expr::FunctionCall {
             callee: Box::new(callee),
@@ -3765,10 +3986,34 @@ impl Parser {
     // Is the whole operator left-associative or right-associative?
     // todo: Add error productions to handle each binary operator appearing without a left-hand operand.
     // In other words, detect a binary operator appearing at the beginning of an expression
-    //* primary → "true" | "false" | NUMBER | STRING | "(" expression ")" | IDENTIFIER ;
+    // * primary →    | "true"
+    // *              | "false"
+    // *              | NUMBER
+    // *              | STRING
+    // *              | "(" expression ")" | IDENTIFIER
+    // *              | "super" "." IDENTIFIER ;
     fn primary(&mut self) -> Result<Expr> {
         //todo: how this clone, can affect❓
         match self.current_token.clone() {
+            Tk::Super => {
+                self.consume_token();
+                let keyword = self.prev_token.clone();
+                self.check_and_consume(Tk::Dot, "Expect '.' after 'super'.");
+                let behavior = if let Tk::Identifier(_, _) = self.current_token {
+                    self.current_token.clone()
+                } else {
+                    // todo: test err❗
+                    report_err(
+                        Tk::Identifier("behavior_name".into(), 0),
+                        self.current_token.clone(),
+                        "Expect superclass method name.",
+                    );
+                    self.current_token.clone()
+                };
+                //? for the "("
+                self.consume_token();
+                Ok(Expr::Super { keyword, behavior })
+            }
             Tk::ThisTk => {
                 self.consume_token();
                 Ok(Expr::This(self.prev_token.clone()))
@@ -3792,18 +4037,49 @@ impl Parser {
             Tk::Lpar => {
                 self.consume_token();
                 let expr = self.expression()?;
-                self.report_and_consume(Tk::Rpar, "')' after EXPRESSION");
+                self.check_and_consume(Tk::Rpar, "')' after EXPRESSION");
                 Ok(Expr::grouping(expr))
             }
-            _ => Err(ParserAy::BadExpression(self.current_token.clone())),
+            Tk::Default
+            | Tk::Return(_)
+            | Tk::Comma
+            | Tk::Assign
+            | Tk::Sub
+            | Tk::Mul
+            | Tk::Rpar
+            | Tk::LT
+            | Tk::EQ
+            | Tk::Bang
+            | Tk::End
+            | Tk::Semi
+            | Tk::Class
+            | Tk::Fn
+            | Tk::Var
+            | Tk::For
+            | Tk::If
+            | Tk::While
+            | Tk::Print
+            | Tk::LBrace
+            | Tk::RBrace
+            | Tk::Else
+            | Tk::Or
+            | Tk::And
+            | Tk::Dot => Err(ParserAy::BadExpression(self.current_token.clone())),
         }
     }
 
-    fn report_and_consume(&mut self, expected_token: Tk, expected_message: &str) {
+    fn check_and_consume(&mut self, expected_token: Tk, expected_message: &str) {
         if self.current_token != expected_token && self.current_token != Tk::End {
             report_err(expected_token, self.current_token.clone(), expected_message);
         }
         self.consume_token();
+    }
+
+    fn consume_then_check(&mut self, expected_token: Tk, expected_message: &str) {
+        self.consume_token();
+        if self.current_token != expected_token && self.current_token != Tk::End {
+            report_err(expected_token, self.current_token.clone(), expected_message);
+        }
     }
 
     // private void synchronize() {
@@ -3901,6 +4177,89 @@ fn main() {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_can_call_super_behaviors() {
+        //?1 class Doughnut {
+        //?2    cook() {
+        //?3        print 42_000;
+        //?4     }
+        //?5 }
+        //?6 class BostonCream < Doughnut {
+        //?7     cook() {
+        //?8         super.cook();
+        //?9         print 42;
+        //?10     }
+        //?11 }
+        //?12 BostonCream().cook();
+        let tokens = vec![
+            //?1 class Doughnut {
+            Tk::Class,
+            Tk::Identifier("Doughnut".into(), 1),
+            Tk::LBrace,
+            //?2    cook() {
+            Tk::Identifier("cook".into(), 2),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::LBrace,
+            //?3        print 42;
+            Tk::Print,
+            Tk::Num(42_000),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::RBrace,
+            //?6  class BostonCream < Doughnut {
+            Tk::Class,
+            Tk::Identifier("BostonCream".into(), 6),
+            Tk::LT,
+            Tk::Identifier("Doughnut".into(), 6),
+            Tk::LBrace,
+            //?7    cook() {
+            Tk::Identifier("cook".into(), 2),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::LBrace,
+            //?8         super.cook();
+            Tk::Super,
+            Tk::Dot,
+            Tk::Identifier("cook".into(), 2),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Semi,
+            //?9         print 42;
+            Tk::Print,
+            Tk::Num(42),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::RBrace,
+            //?7  BostonCream().cook();
+            Tk::Identifier("BostonCream".into(), 7),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Dot,
+            Tk::Identifier("cook".into(), 7),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Semi,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![]);
+        let inter = test_run(environment, statements);
+
+        // todo: assert stdout
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(42)));
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(42_000)));
+    }
+
+    /*
+     * we look for a method on the current class before walking
+     * up the superclass chain.
+     * If a method with the same name exists in both the subclass
+     * and the superclass, the subclass one takes precedence or
+     * overrides the superclass method.
+     * Sort of like how variables in inner scopes shadow outer ones.
+     */
     #[test]
     fn test_simple_inheritance() {
         //?1 class Doughnut {
@@ -4033,6 +4392,7 @@ mod tests {
                     parameters: vec![],
                     body: vec![Statement::Print(Expr::This(Tk::ThisTk))],
                 },
+                None,
                 true,
             ),
         );
@@ -4135,6 +4495,7 @@ mod tests {
                     parameters: vec![],
                     body: vec![Statement::Print(Expr::This(Tk::ThisTk))],
                 },
+                None,
                 true,
             ),
         );
@@ -4395,6 +4756,7 @@ mod tests {
                         value: Expr::Literal(V::I32(42)),
                     }],
                 },
+                None,
                 false,
             ),
         );
