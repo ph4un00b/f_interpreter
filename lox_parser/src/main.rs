@@ -589,6 +589,7 @@ impl InstanceObject {
     //?   print circle.area; // Prints roughly "50.2655".
     fn get_prop(self, interpreter: &mut Interpreter, name: Tk) -> RValue {
         let key = String::from(name.clone());
+        let instance_value = V::Instance(Box::new(self.clone()));
         /*
          * Note how I switched from talking about “properties”
          * to “fields”. There is a subtle difference between the two.
@@ -600,7 +601,10 @@ impl InstanceObject {
          * not every property is a field.
          */
         if self.state_fields.contains_key(&key) {
-            //todo: is this clone ok❓
+            //? is this clone ok❓
+            //? por ahora parece que sí,
+            //? la implementación actual esta hecha para funcionar
+            //? con copias
             Ok(self.state_fields.get(&key).unwrap().clone())
         } else if self.row.behaviors.contains_key(&key) {
             /*
@@ -609,8 +613,23 @@ impl InstanceObject {
              */
             // todo: test shadowing❗
             let function = self.row.behaviors.get(&key).unwrap();
-            let val = function.bind_instance(interpreter, &V::Instance(Box::new(self.clone())));
+            let val = function.bind_instance(interpreter, &instance_value);
             Ok(val)
+        } else if let Some(V::Row(parent)) = self.row.super_row {
+            /*
+             * When we are looking up a method on an instance,
+             * if we don’t find it on the instance’s class,
+             * we recurse up through the superclass chain and look there.
+             */
+            //? aquí creo que limitamos a un padre máximo
+            //todo: test only 1 parent max❗
+            if parent.behaviors.contains_key(&key) {
+                let func = parent.behaviors.get(&key).unwrap();
+                let val = func.bind_instance(interpreter, &instance_value);
+                Ok(val)
+            } else {
+                Err(Runtime::UndefinedProperty(name.clone()))
+            }
         } else {
             /*
             * An interesting edge case we need to handle
@@ -758,7 +777,7 @@ impl FunctionObject {
         }
     }
 
-    fn bind_instance(&self, interpreter: &mut Interpreter, val: &V) -> V {
+    fn bind_instance(&self, interpreter: &mut Interpreter, value: &V) -> V {
         let fn_name = match self.declaration.clone() {
             Statement::FunctionDeclaration {
                 kind: _,
@@ -770,7 +789,7 @@ impl FunctionObject {
         };
         println!("CREATE CALL ENV FOR {fn_name:?}");
         let mut call_env = Env::new(EnvKind::Call(fn_name.clone()));
-        call_env.define(Tk::ThisTk.into(), val.clone());
+        call_env.define(Tk::ThisTk.into(), value.clone());
         interpreter.global_env.push(call_env);
         /*
          * And then in bind() where we create the closure that binds this to
@@ -3881,6 +3900,58 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_simple_inheritance() {
+        //?1 class Doughnut {
+        //?2    cook() {
+        //?3        print 42;
+        //?4     }
+        //?5 }
+        //?6  class BostonCream < Doughnut {}
+        //?7  BostonCream().cook();
+        let tokens = vec![
+            //?1 class Doughnut {
+            Tk::Class,
+            Tk::Identifier("Doughnut".into(), 1),
+            Tk::LBrace,
+            //?2    cook() {
+            Tk::Identifier("cook".into(), 2),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::LBrace,
+            //?3        print 42;
+            Tk::Print,
+            Tk::Num(42),
+            Tk::Semi,
+            Tk::RBrace,
+            Tk::RBrace,
+            //?6  class BostonCream < Doughnut {}
+            Tk::Class,
+            Tk::Identifier("BostonCream".into(), 6),
+            Tk::LT,
+            Tk::Identifier("Doughnut".into(), 6),
+            Tk::LBrace,
+            Tk::RBrace,
+            //?7  BostonCream().cook();
+            Tk::Identifier("BostonCream".into(), 7),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Dot,
+            Tk::Identifier("cook".into(), 7),
+            Tk::Lpar,
+            Tk::Rpar,
+            Tk::Semi,
+            Tk::End,
+        ];
+        let (statements, environment) = test_setup(tokens, vec![]);
+        let inter = test_run(environment, statements);
+
+        // todo: assert stdout
+        let mut iter = inter.results.iter();
+        //todo: look for ordering in reverse ti match the logical output
+        assert_eq!(iter.next_back().unwrap(), &("print".into(), V::I32(42)));
+    }
 
     #[test]
     #[should_panic = "debe ser Row!"]
