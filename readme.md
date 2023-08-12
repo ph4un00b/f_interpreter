@@ -1,6 +1,9 @@
 # estructura ✨
   - **grammars**: contiene poc's de PEG con la librería [pest](https://pest.rs/book/)
-  - **lox_parser**: minimal parser for `1 - (2 * 3) < 4 == false`
+  - **lox parser**:
+    - minimal parser for `1 - (2 * 3) < 4 == false`
+    - a more procedural / imperative code style
+    - uses a top down parser
     - ✅ let variables
     - ✅ loops
     - ✅ block scope
@@ -9,6 +12,9 @@
     - ✅ closures
     - ✅ classes
     - ✅ inheritance
+  - **monkey parser**:
+    - a more object oriented code style
+    - uses a pratt parser
   - **linked_list**: since block scoping is similar to a linked-list, I will take tour on this
     - following: https://rust-unofficial.github.io/too-many-lists/index.html
     - at the end it seems we can use the great old rust vec!
