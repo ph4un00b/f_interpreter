@@ -30,7 +30,7 @@ impl LetStatement {
 
 #[cfg(test)]
 mod tests {
-    use crate::lexer::Lexer;
+    use crate::{lexer::Lexer, parser::Errors};
 
     use super::*;
 
@@ -44,6 +44,10 @@ mod tests {
         let lex = Lexer::new(statements.into());
         let mut p = Parser::new(lex);
         let program = p.parse_program();
+        for err in p.errors() {
+            println!("🎈 {err}");
+        }
+        assert_eq!(p.errors().len(), 0);
         assert_eq!(
             program.len(),
             3,
