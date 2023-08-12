@@ -6,7 +6,9 @@
     - ✅ block scope
     - ✅ functions
     - ✅ semantic analysis aka resolver pass
-    - closures
+    - ✅ closures
+    - ✅ classes
+    - ✅ inheritance
   - **linked_list**: since block scoping is similar to a linked-list, I will take tour on this
     - following: https://rust-unofficial.github.io/too-many-lists/index.html
     - at the end it seems we can use the great old rust vec!
