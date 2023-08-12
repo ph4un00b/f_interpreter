@@ -21,15 +21,6 @@ pub(crate) trait Assertions {
     fn expect_peek(&mut self, expected_token: Tk) -> bool;
     fn expect_peek_identifier(&mut self) -> bool;
 }
-pub struct Parser {
-    lex: Lexer,
-    pub current_token: Tk,
-    /*
-     * we need peekToken to decide whether we are at the end
-     * of the line or if we are at just the start of an arithmetic expression.
-     */
-    pub peek_token: Tk,
-}
 
 impl Parsing for Parser {
     fn next_token(&mut self) {
@@ -59,6 +50,7 @@ impl Assertions for Parser {
             self.next_token();
             true
         } else {
+            self.peek_error(Tk::Ident("name".into(), 0));
             false
         }
     }
@@ -68,6 +60,7 @@ impl Assertions for Parser {
             self.next_token();
             true
         } else {
+            self.peek_error(expected_token);
             false
         }
     }
@@ -76,6 +69,41 @@ impl Assertions for Parser {
         self.current_token == Tk::Semi
     }
 }
+
+pub(crate) trait Errors {
+    fn errors(&self) -> Vec<String>;
+    /*
+     * It doesn’t exit on the first one, potentially saving us the
+     * grunt work of rerunning the parsing process again and again to catch all of the syntax errors.
+     * That’s pretty helpful - even with line and column numbers missing.
+     */
+    fn peek_error(&mut self, expected_token: Tk);
+}
+
+impl Errors for Parser {
+    fn errors(&self) -> Vec<String> {
+        self.errors.clone()
+    }
+
+    fn peek_error(&mut self, expected_token: Tk) {
+        let msg = format!(
+            "expected next token to be {expected_token:?}, got {:?} instead",
+            self.peek_token
+        );
+        self.errors.push(msg);
+    }
+}
+pub struct Parser {
+    lex: Lexer,
+    pub current_token: Tk,
+    /*
+     * we need peekToken to decide whether we are at the end
+     * of the line or if we are at just the start of an arithmetic expression.
+     */
+    pub peek_token: Tk,
+    errors: Vec<String>,
+}
+
 #[allow(unused)]
 impl Parser {
     pub fn new(lex: Lexer) -> Self {
@@ -83,6 +111,7 @@ impl Parser {
             lex,
             current_token: Tk::None,
             peek_token: Tk::None,
+            errors: vec![],
         };
         p.next_token();
         p.next_token();
