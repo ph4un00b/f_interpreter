@@ -55,6 +55,47 @@ pub enum Tk {
     EMOJI1(String, i32),
 }
 
+impl std::fmt::Display for Tk {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Tk::Assign => todo!(),
+            Tk::Plus => todo!(),
+            Tk::Sub => todo!(),
+            Tk::Bang => todo!(),
+            Tk::Mul => todo!(),
+            Tk::Div => todo!(),
+            Tk::LT => todo!(),
+            Tk::GT => todo!(),
+            Tk::LP => todo!(),
+            Tk::RP => todo!(),
+            Tk::LB => todo!(),
+            Tk::RB => todo!(),
+            Tk::Comma => todo!(),
+            Tk::Semi => todo!(),
+            Tk::End => todo!(),
+            Tk::String(_, _) => todo!(),
+            Tk::Ident(_, _) => todo!(),
+            Tk::Num(_, _) => todo!(),
+            Tk::None => todo!(),
+            Tk::Func => todo!(),
+            Tk::Let => todo!(),
+            Tk::If => todo!(),
+            Tk::Else => todo!(),
+            Tk::True => todo!(),
+            Tk::False => todo!(),
+            Tk::Return => "return",
+            Tk::EQ => todo!(),
+            Tk::NotEq => todo!(),
+            Tk::Comment => todo!(),
+            Tk::EMOJI4(_, _) => todo!(),
+            Tk::EMOJI3(_, _) => todo!(),
+            Tk::EMOJI2(_, _) => todo!(),
+            Tk::EMOJI1(_, _) => todo!(),
+        };
+        Ok(())
+    }
+}
+
 pub type Byte = u8;
 
 pub struct Scanner {
