@@ -1,12 +1,16 @@
 use crate::{
-    ast::FnType, ast_expression::Expr, bind_statement::LetStatement, parser::Parser, scanner::Tk,
+    ast::FnType, ast_expression::Expr, bind_statement::LetStatement, parser::Parser,
+    return_statement::ReturnStatement, scanner::Tk,
 };
 
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub enum Statement {
     None(String),
-    Expr(Expr),
+    Expr {
+        first_token: Tk,
+        expr: Expr,
+    },
     Print(Expr),
     Block(Vec<Statement>),
     Row {
@@ -15,7 +19,7 @@ pub enum Statement {
         columns: Vec<Statement>,
     },
     Return {
-        keyword: Tk,
+        token: Tk,
         value: Expr,
     },
     Func {
@@ -44,7 +48,10 @@ impl ToString for Statement {
     fn to_string(&self) -> String {
         match self {
             Statement::None(_) => todo!(),
-            Statement::Expr(_) => todo!(),
+            Statement::Expr {
+                first_token: _,
+                expr: _,
+            } => todo!(),
             Statement::Print(_) => todo!(),
             Statement::Block(_) => todo!(),
             Statement::Row {
@@ -52,10 +59,7 @@ impl ToString for Statement {
                 super_expr: _,
                 columns: _,
             } => todo!(),
-            Statement::Return {
-                keyword: _,
-                value: _,
-            } => todo!(),
+            Statement::Return { token, value } => ReturnStatement::literal(token, value),
             Statement::Func {
                 kind: _,
                 name: _,
@@ -86,6 +90,7 @@ impl Statement {
     pub fn parse(p: &mut Parser) -> Option<Statement> {
         match &p.current_token {
             Tk::Let => LetStatement::parse(p),
+            Tk::Return => ReturnStatement::parse(p),
             Tk::Assign
             | Tk::Plus
             | Tk::Sub
@@ -110,7 +115,6 @@ impl Statement {
             | Tk::Else
             | Tk::True
             | Tk::False
-            | Tk::Return
             | Tk::EQ
             | Tk::NotEq
             | Tk::Comment

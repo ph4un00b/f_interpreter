@@ -22,28 +22,6 @@ pub(crate) trait Assertions {
     fn expect_peek_identifier(&mut self) -> bool;
 }
 
-impl Parsing for Parser {
-    fn next_token(&mut self) {
-        self.current_token = self.peek_token.clone();
-        if let Some(next_token) = self.lex.next() {
-            self.peek_token = next_token;
-        } else {
-            self.peek_token = Tk::None;
-        }
-    }
-
-    fn parse_program(&mut self) -> Program {
-        let mut program = Program::new();
-        while self.current_token != Tk::End {
-            if let Some(stmt) = Statement::parse(self) {
-                program.append(stmt);
-            }
-            self.next_token();
-        }
-        program
-    }
-}
-
 impl Assertions for Parser {
     fn expect_peek_identifier(&mut self) -> bool {
         if let Tk::Ident(_, _) = self.peek_token {
@@ -116,5 +94,27 @@ impl Parser {
         p.next_token();
         p.next_token();
         p
+    }
+}
+
+impl Parsing for Parser {
+    fn next_token(&mut self) {
+        self.current_token = self.peek_token.clone();
+        if let Some(next_token) = self.lex.next() {
+            self.peek_token = next_token;
+        } else {
+            self.peek_token = Tk::None;
+        }
+    }
+
+    fn parse_program(&mut self) -> Program {
+        let mut program = Program::new();
+        while self.current_token != Tk::End {
+            if let Some(stmt) = Statement::parse(self) {
+                program.append(stmt);
+            }
+            self.next_token();
+        }
+        program
     }
 }
