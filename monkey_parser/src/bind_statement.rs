@@ -26,6 +26,23 @@ impl LetStatement {
             initializer: Expr::None,
         })
     }
+
+    pub(crate) fn display(
+        f: &mut std::fmt::Formatter<'_>,
+        token: &Tk,
+        identifier: &Tk,
+        initializer: &Expr,
+    ) -> Result<(), std::fmt::Error> {
+        write!(f, "{token} ")?;
+        write!(f, "{identifier}")?;
+        write!(f, " = ")?;
+        if let Expr::None = initializer {
+            write!(f, ";")?;
+        } else {
+            write!(f, "{initializer};")?;
+        };
+        Ok(())
+    }
 }
 
 #[cfg(test)]

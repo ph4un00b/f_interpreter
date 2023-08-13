@@ -1,7 +1,11 @@
-use crate::{ast::V, id_expr::IdentExpr, scanner::Tk};
+use crate::{
+    ast::{ToLiteral, V},
+    id_expr::IdentExpr,
+    scanner::Tk,
+};
 
-impl ToString for Expr {
-    fn to_string(&self) -> String {
+impl ToLiteral for Expr {
+    fn to_literal(&self) -> String {
         match self {
             Expr::None => todo!(),
             Expr::Ident(name) => IdentExpr::literal(name),
@@ -44,6 +48,56 @@ impl ToString for Expr {
         }
     }
 }
+
+impl std::fmt::Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expr::Ident(name) => IdentExpr::display(f, name),
+            Expr::None => todo!(),
+            Expr::This(_) => todo!(),
+            Expr::Literal(_) => todo!(),
+            Expr::Grouping(_) => todo!(),
+            Expr::Unary { op: _, right: _ } => todo!(),
+            Expr::Binary {
+                left: _,
+                op: _,
+                right: _,
+            } => todo!(),
+            Expr::Call {
+                callee: _,
+                paren: _,
+                arguments: _,
+            } => {
+                todo!()
+            }
+            Expr::Logical {
+                left: _,
+                op: _,
+                right: _,
+            } => todo!(),
+            Expr::Assign {
+                identifier: _,
+                value: _,
+            } => todo!(),
+            Expr::GetProp {
+                identifier: _,
+                prop: _,
+            } => todo!(),
+            Expr::SetProp {
+                identifier: _,
+                prop_id: _,
+                value: _,
+            } => {
+                todo!()
+            }
+            Expr::Super {
+                keyword: _,
+                behavior: _,
+            } => todo!(),
+        }
+    }
+}
+
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub enum Expr {
