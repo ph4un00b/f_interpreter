@@ -12,4 +12,12 @@ impl IdentExpr {
     pub fn literal(name: &Tk) -> String {
         String::from(name)
     }
+
+    pub(crate) fn display(
+        f: &mut std::fmt::Formatter<'_>,
+        name: &Tk,
+    ) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", String::from(name))?;
+        Ok(())
+    }
 }

@@ -79,6 +79,47 @@ impl From<&Tk> for String {
     }
 }
 
+impl std::fmt::Display for Tk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Tk::Assign
+            | Tk::Plus
+            | Tk::Sub
+            | Tk::Bang
+            | Tk::Mul
+            | Tk::Div
+            | Tk::LT
+            | Tk::GT
+            | Tk::LP
+            | Tk::RP
+            | Tk::LB
+            | Tk::RB
+            | Tk::Comma
+            | Tk::Semi
+            | Tk::End
+            | Tk::String(_, _)
+            | Tk::Ident(_, _)
+            | Tk::Num(_, _)
+            | Tk::None
+            | Tk::Func
+            | Tk::Let
+            | Tk::If
+            | Tk::Else
+            | Tk::True
+            | Tk::False
+            | Tk::Return
+            | Tk::EQ
+            | Tk::NotEq
+            | Tk::Comment
+            | Tk::EMOJI4(_, _)
+            | Tk::EMOJI3(_, _)
+            | Tk::EMOJI2(_, _)
+            | Tk::EMOJI1(_, _) => write!(f, "{}", String::from(self))?,
+        };
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub struct Lexer {
     pub had_error: bool,

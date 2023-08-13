@@ -1,6 +1,11 @@
 use crate::{
-    ast::FnType, ast_expression::Expr, bind_statement::LetStatement, parser::Parser,
-    return_statement::ReturnStatement, scanner::Tk,
+    ast::{FnType, ToLiteral},
+    ast_expression::Expr,
+    bind_statement::LetStatement,
+    expr_statement::ExprStatement,
+    parser::Parser,
+    return_statement::ReturnStatement,
+    scanner::Tk,
 };
 
 #[allow(unused)]
@@ -44,14 +49,11 @@ pub enum Statement {
     },
 }
 
-impl ToString for Statement {
-    fn to_string(&self) -> String {
+impl ToLiteral for Statement {
+    fn to_literal(&self) -> String {
         match self {
             Statement::None(_) => todo!(),
-            Statement::Expr {
-                first_token: _,
-                expr: _,
-            } => todo!(),
+            Statement::Expr { first_token, expr } => ExprStatement::literal(first_token, expr),
             Statement::Print(_) => todo!(),
             Statement::Block(_) => todo!(),
             Statement::Row {
@@ -82,6 +84,47 @@ impl ToString for Statement {
                 identifier,
                 initializer,
             } => LetStatement::literal(token, identifier, initializer),
+        }
+    }
+}
+
+impl std::fmt::Display for Statement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Statement::Bind {
+                token,
+                identifier,
+                initializer,
+            } => LetStatement::display(f, token, identifier, initializer),
+            Statement::Return { token, value } => ReturnStatement::display(f, token, value),
+            Statement::None(_) => todo!(),
+            Statement::Expr { first_token, expr } => ExprStatement::display(f, first_token, expr),
+            Statement::Print(_) => todo!(),
+            Statement::Block(_) => todo!(),
+            Statement::Row {
+                name: _,
+                super_expr: _,
+                columns: _,
+            } => {
+                todo!()
+            }
+            Statement::Func {
+                kind: _,
+                name: _,
+                parameters: _,
+                body: _,
+            } => {
+                todo!()
+            }
+            Statement::While {
+                condition: _,
+                body: _,
+            } => todo!(),
+            Statement::Cond {
+                condition: _,
+                then_statement: _,
+                else_statement: _,
+            } => todo!(),
         }
     }
 }

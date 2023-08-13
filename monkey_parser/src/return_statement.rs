@@ -25,6 +25,20 @@ impl ReturnStatement {
             value: Expr::None,
         })
     }
+
+    pub(crate) fn display(
+        f: &mut std::fmt::Formatter<'_>,
+        token: &crate::scanner::Tk,
+        value: &Expr,
+    ) -> Result<(), std::fmt::Error> {
+        write!(f, "{token}")?;
+        if let Expr::None = value {
+            write!(f, ";")?;
+        } else {
+            write!(f, "{value};")?;
+        };
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -1,8 +1,17 @@
-use crate::ast_statements::Statement;
+use crate::{ast::ToLiteral, ast_statements::Statement};
 
 pub struct Program {
     statements: Vec<Statement>,
     position: usize,
+}
+
+impl std::fmt::Display for Program {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for stmt in &self.statements {
+            writeln!(f, "{stmt}")?;
+        }
+        Ok(())
+    }
 }
 
 impl Iterator for Program {
@@ -39,8 +48,8 @@ impl Program {
     }
 }
 
-impl ToString for Program {
-    fn to_string(&self) -> String {
+impl ToLiteral for Program {
+    fn to_literal(&self) -> String {
         if self.statements.is_empty() {
             String::from("")
         } else {
