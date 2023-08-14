@@ -1,3 +1,23 @@
+pub enum P {
+    Lowest,
+    //?     public static final int ASSIGNMENT  = 1;
+    // AssignOrElse,
+    //?     public static final int CONDITIONAL = 2;
+    // Cond,
+    //?     public static final int SUM         = 3;
+    // Sum,
+    //?     public static final int PRODUCT     = 4;
+    // Mul,
+    //?     public static final int EXPONENT    = 5;
+    // Pow,
+    //?     public static final int PREFIX      = 6;
+    // Prefix,
+    //?     public static final int POSTFIX     = 7;
+    // Post,
+    //?     public static final int CALL        = 8;
+    // Call,
+}
+
 #[derive(Debug, Clone)]
 pub struct InstanceCallable {}
 #[derive(Debug, Clone)]

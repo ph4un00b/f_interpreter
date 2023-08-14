@@ -1,4 +1,7 @@
-use crate::{ast_statements::Statement, lexer::Lexer, program_node::Program, scanner::Tk};
+use crate::{
+    ast_expression::Expr, ast_statements::Statement, id_expr::IdentExpr, lexer::Lexer,
+    program_node::Program, scanner::Tk,
+};
 
 pub(crate) trait Parsing {
     fn next_token(&mut self);
@@ -20,6 +23,7 @@ pub(crate) trait Assertions {
     fn current_token_isnt_semi(&self) -> bool;
     fn expect_peek(&mut self, expected_token: Tk) -> bool;
     fn expect_peek_identifier(&mut self) -> bool;
+    fn optional_semi(&mut self) -> bool;
 }
 
 impl Assertions for Parser {
@@ -45,6 +49,16 @@ impl Assertions for Parser {
 
     fn current_token_isnt_semi(&self) -> bool {
         self.current_token == Tk::Semi
+    }
+
+    fn optional_semi(&mut self) -> bool {
+        /*
+         * If the peekToken is a token.SEMICOLON, we advance so
+         * it’s the curToken. If it’s not there, that’s okay too, we don’t add an error to the parser if it’s
+         * not there. That’s because we want expression statements to have optional semicolons (which
+         * makes it easier to type something like 5 + 5 into the REPL later on).
+         */
+        self.peek_token == Tk::Semi
     }
 }
 
@@ -94,6 +108,20 @@ impl Parser {
         p.next_token();
         p.next_token();
         p
+    }
+
+    pub(crate) fn parse_expression(&self, lowest: crate::ast::P) -> Option<Expr> {
+        //? prefix := p.prefixParseFns[p.curToken.Type]
+        //? if prefix == nil {
+        //? return nil
+        //? }
+        //? leftExp := prefix()
+        match self.current_token {
+            Tk::Sub => todo!(),
+            Tk::Bang => todo!(),
+            Tk::Ident(_, _) => IdentExpr::parse(self),
+            _ => Some(Expr::None),
+        }
     }
 }
 
