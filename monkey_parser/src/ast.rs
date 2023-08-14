@@ -35,6 +35,7 @@ pub enum V {
     Func(Box<FuncCallable>),
     NativeFunc(String),
     I32(i32),
+    I64(i64),
     F64(f64),
     String(String),
     Bool(bool),

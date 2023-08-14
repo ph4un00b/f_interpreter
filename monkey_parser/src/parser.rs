@@ -1,6 +1,6 @@
 use crate::{
-    ast_expression::Expr, ast_statements::Statement, id_expr::IdentExpr, lexer::Lexer,
-    program_node::Program, scanner::Tk,
+    ast_expression::Expr, ast_statements::Statement, id_expr::IdentExpr, int_expr::IntegerExpr,
+    lexer::Lexer, program_node::Program, scanner::Tk,
 };
 
 pub(crate) trait Parsing {
@@ -48,7 +48,7 @@ impl Assertions for Parser {
     }
 
     fn current_token_isnt_semi(&self) -> bool {
-        self.current_token == Tk::Semi
+        self.current_token != Tk::Semi
     }
 
     fn optional_semi(&mut self) -> bool {
@@ -70,6 +70,7 @@ pub(crate) trait Errors {
      * That’s pretty helpful - even with line and column numbers missing.
      */
     fn peek_error(&mut self, expected_token: Tk);
+    fn append_error(&mut self, msg: String);
 }
 
 impl Errors for Parser {
@@ -82,6 +83,10 @@ impl Errors for Parser {
             "expected next token to be {expected_token:?}, got {:?} instead",
             self.peek_token
         );
+        self.errors.push(msg);
+    }
+
+    fn append_error(&mut self, msg: String) {
         self.errors.push(msg);
     }
 }
@@ -110,16 +115,17 @@ impl Parser {
         p
     }
 
-    pub(crate) fn parse_expression(&self, lowest: crate::ast::P) -> Option<Expr> {
+    pub(crate) fn parse_expression(&mut self, lowest: crate::ast::P) -> Option<Expr> {
         //? prefix := p.prefixParseFns[p.curToken.Type]
         //? if prefix == nil {
         //? return nil
         //? }
         //? leftExp := prefix()
-        match self.current_token {
+        match &self.current_token {
             Tk::Sub => todo!(),
             Tk::Bang => todo!(),
             Tk::Ident(_, _) => IdentExpr::parse(self),
+            Tk::Num(v, _) => IntegerExpr::parse(self, v.clone().as_str()),
             _ => Some(Expr::None),
         }
     }
@@ -138,6 +144,7 @@ impl Parsing for Parser {
     fn parse_program(&mut self) -> Program {
         let mut program = Program::new();
         while self.current_token != Tk::End {
+            println!("{:?}", self.current_token.clone());
             if let Some(stmt) = Statement::parse(self) {
                 program.append(stmt);
             }
