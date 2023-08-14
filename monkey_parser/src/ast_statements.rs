@@ -134,10 +134,9 @@ impl Statement {
         match &p.current_token {
             Tk::Let => LetStatement::parse(p),
             Tk::Return => ReturnStatement::parse(p),
+            Tk::Sub | Tk::Bang | Tk::Ident(_, _) => ExprStatement::parse(p),
             Tk::Assign
             | Tk::Plus
-            | Tk::Sub
-            | Tk::Bang
             | Tk::Mul
             | Tk::Div
             | Tk::LT
@@ -150,7 +149,6 @@ impl Statement {
             | Tk::Semi
             | Tk::End
             | Tk::String(_, _)
-            | Tk::Ident(_, _)
             | Tk::Num(_, _)
             | Tk::None
             | Tk::Func
