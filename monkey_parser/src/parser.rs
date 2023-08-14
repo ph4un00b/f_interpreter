@@ -1,6 +1,6 @@
 use crate::{
     ast_expression::Expr, ast_statements::Statement, id_expr::IdentExpr, int_expr::IntegerExpr,
-    lexer::Lexer, program_node::Program, scanner::Tk,
+    lexer::Lexer, prefix_expr::PrefixExpr, program_node::Program, scanner::Tk,
 };
 
 pub(crate) trait Parsing {
@@ -115,18 +115,17 @@ impl Parser {
         p
     }
 
-    pub(crate) fn parse_expression(&mut self, lowest: crate::ast::P) -> Option<Expr> {
+    pub(crate) fn parse_expression(&mut self, precedence: crate::ast::P) -> Option<Expr> {
         //? prefix := p.prefixParseFns[p.curToken.Type]
         //? if prefix == nil {
         //? return nil
         //? }
         //? leftExp := prefix()
         match &self.current_token {
-            Tk::Sub => todo!(),
-            Tk::Bang => todo!(),
+            Tk::Sub | Tk::Bang => PrefixExpr::parse(self),
             Tk::Ident(_, _) => IdentExpr::parse(self),
             Tk::Num(v, _) => IntegerExpr::parse(self, v.clone().as_str()),
-            _ => Some(Expr::None),
+            _ => None,
         }
     }
 }

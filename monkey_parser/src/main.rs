@@ -7,6 +7,7 @@ mod id_expr;
 mod int_expr;
 mod lexer;
 mod parser;
+mod prefix_expr;
 mod program_node;
 mod return_statement;
 mod scanner;

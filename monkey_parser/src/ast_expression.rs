@@ -2,6 +2,7 @@ use crate::{
     ast::{ToLiteral, V},
     id_expr::IdentExpr,
     int_expr::IntegerExpr,
+    prefix_expr::PrefixExpr,
     scanner::Tk,
 };
 
@@ -11,9 +12,9 @@ impl ToLiteral for Expr {
             Expr::None => todo!(),
             Expr::Ident(name) => IdentExpr::literal(name),
             Expr::Literal { token, value: _ } => IntegerExpr::literal(token),
+            Expr::Unary { op, right: _ } => PrefixExpr::literal(op),
             Expr::This(_) => todo!(),
             Expr::Grouping(_) => todo!(),
-            Expr::Unary { op: _, right: _ } => todo!(),
             Expr::Binary {
                 left: _,
                 op: _,
@@ -53,6 +54,7 @@ impl ToLiteral for Expr {
 impl std::fmt::Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Expr::None => todo!(),
             Expr::Ident(name) => IdentExpr::display(f, name),
             Expr::Literal { token: _, value } => match value {
                 V::I64(val) => IntegerExpr::display(f, val),
@@ -67,10 +69,9 @@ impl std::fmt::Display for Expr {
                 | V::String(_)
                 | V::Bool(_) => unreachable!(),
             },
-            Expr::None => todo!(),
+            Expr::Unary { op, right } => PrefixExpr::display(f, op, right),
             Expr::This(_) => todo!(),
             Expr::Grouping(_) => todo!(),
-            Expr::Unary { op: _, right: _ } => todo!(),
             Expr::Binary {
                 left: _,
                 op: _,
