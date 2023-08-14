@@ -91,24 +91,24 @@ impl ToLiteral for Statement {
 impl std::fmt::Display for Statement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Statement::Bind {
+            Self::None(_) => todo!(),
+            Self::Bind {
                 token,
                 identifier,
                 initializer,
             } => LetStatement::display(f, token, identifier, initializer),
-            Statement::Return { token, value } => ReturnStatement::display(f, token, value),
-            Statement::None(_) => todo!(),
-            Statement::Expr { first_token, expr } => ExprStatement::display(f, first_token, expr),
-            Statement::Print(_) => todo!(),
-            Statement::Block(_) => todo!(),
-            Statement::Row {
+            Self::Return { token, value } => ReturnStatement::display(f, token, value),
+            Self::Expr { first_token, expr } => ExprStatement::display(f, first_token, expr),
+            Self::Print(_) => todo!(),
+            Self::Block(_) => todo!(),
+            Self::Row {
                 name: _,
                 super_expr: _,
                 columns: _,
             } => {
                 todo!()
             }
-            Statement::Func {
+            Self::Func {
                 kind: _,
                 name: _,
                 parameters: _,
@@ -116,11 +116,11 @@ impl std::fmt::Display for Statement {
             } => {
                 todo!()
             }
-            Statement::While {
+            Self::While {
                 condition: _,
                 body: _,
             } => todo!(),
-            Statement::Cond {
+            Self::Cond {
                 condition: _,
                 then_statement: _,
                 else_statement: _,
@@ -134,7 +134,7 @@ impl Statement {
         match &p.current_token {
             Tk::Let => LetStatement::parse(p),
             Tk::Return => ReturnStatement::parse(p),
-            Tk::Sub | Tk::Bang | Tk::Ident(_, _) => ExprStatement::parse(p),
+            Tk::Sub | Tk::Bang | Tk::Ident(_, _) | Tk::Num(_, _) => ExprStatement::parse(p),
             Tk::Assign
             | Tk::Plus
             | Tk::Mul
@@ -149,7 +149,6 @@ impl Statement {
             | Tk::Semi
             | Tk::End
             | Tk::String(_, _)
-            | Tk::Num(_, _)
             | Tk::None
             | Tk::Func
             | Tk::If

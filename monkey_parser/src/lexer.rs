@@ -67,7 +67,7 @@ impl From<&Tk> for String {
             Tk::NotEq => "!=".to_string(),
             //? special
             Tk::Ident(name, _) => name.clone(),
-            Tk::Num(_, _) => todo!(),
+            Tk::Num(value, _) => value.clone(),
             Tk::None => todo!(),
             Tk::String(_, _) => todo!(),
             Tk::Comment => todo!(),
