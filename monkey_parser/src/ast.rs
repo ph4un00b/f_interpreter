@@ -11,7 +11,7 @@ pub enum P {
     //?     public static final int EXPONENT    = 5;
     // Pow,
     //?     public static final int PREFIX      = 6;
-    // Prefix,
+    Prefix,
     //?     public static final int POSTFIX     = 7;
     // Post,
     //?     public static final int CALL        = 8;
