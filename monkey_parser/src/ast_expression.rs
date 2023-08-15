@@ -1,6 +1,7 @@
 use crate::{
     ast::{Name, ToLiteral, V},
     bool_expr::BooleanExpr,
+    group_expr::GroupExpr,
     id_expr::IdentExpr,
     infix_expr::InfixExpr,
     int_expr::IntegerExpr,
@@ -113,8 +114,8 @@ impl std::fmt::Display for Expr {
             },
             Expr::Unary { op, right } => PrefixExpr::display(f, op, right),
             Expr::Binary { left, op, right } => InfixExpr::display(f, left, op, right),
+            Expr::Grouping(expr) => GroupExpr::display(f, expr),
             Expr::This(_) => todo!(),
-            Expr::Grouping(_) => todo!(),
             Expr::Call {
                 callee: _,
                 paren: _,

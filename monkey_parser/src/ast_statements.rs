@@ -136,17 +136,20 @@ impl Statement {
             Tk::Return => ReturnStatement::parse(p),
             //todo is it possible to avoid repetition in #parse_expression❓
             //todo a macro❓
-            Tk::False | Tk::True | Tk::Sub | Tk::Bang | Tk::Ident(_, _) | Tk::Num(_, _) => {
-                ExprStatement::parse(p)
-            }
+            Tk::OpenParen
+            | Tk::False
+            | Tk::True
+            | Tk::Sub
+            | Tk::Bang
+            | Tk::Ident(_, _)
+            | Tk::Num(_, _) => ExprStatement::parse(p),
             Tk::Assign
             | Tk::Plus
             | Tk::Mul
             | Tk::Div
             | Tk::LT
             | Tk::GT
-            | Tk::LP
-            | Tk::RP
+            | Tk::CloseParen
             | Tk::LB
             | Tk::RB
             | Tk::Comma
