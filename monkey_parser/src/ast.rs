@@ -1,13 +1,16 @@
+use crate::scanner::Tk;
+
+#[derive(PartialEq, PartialOrd)]
 pub enum P {
     Lowest,
     //?     public static final int ASSIGNMENT  = 1;
-    // AssignOrElse,
+    AssignOrElse,
     //?     public static final int CONDITIONAL = 2;
     // Cond,
     //?     public static final int SUM         = 3;
-    // Sum,
+    Sum,
     //?     public static final int PRODUCT     = 4;
-    // Mul,
+    Mul,
     //?     public static final int EXPONENT    = 5;
     // Pow,
     //?     public static final int PREFIX      = 6;
@@ -16,6 +19,31 @@ pub enum P {
     // Post,
     //?     public static final int CALL        = 8;
     // Call,
+}
+
+impl From<&Tk> for P {
+    fn from(value: &Tk) -> P {
+        match value {
+            //? token.EQ: EQUALS,
+            Tk::EQ => P::AssignOrElse,
+            //? token.NOT_EQ: EQUALS,
+            Tk::NotEq => P::AssignOrElse,
+            //? token.LT: LESSGREATER,
+            Tk::LT => P::AssignOrElse,
+            //? token.GT: LESSGREATER,
+            Tk::GT => P::AssignOrElse,
+            //? token.PLUS: SUM,
+            Tk::Plus => P::Sum,
+            //? token.MINUS: SUM,
+            Tk::Sub => P::Sum,
+            //? token.SLASH: PRODUCT,
+            Tk::Div => P::Mul,
+            //? token.ASTERISK: PRODUCT,
+            Tk::Mul => P::Mul,
+            // * aquí puede haber conflicto, por que bang puede ser prefijo e infijo
+            _ => P::Lowest,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

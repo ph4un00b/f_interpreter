@@ -4,6 +4,7 @@ mod ast_statements;
 mod bind_statement;
 mod expr_statement;
 mod id_expr;
+mod infix_expr;
 mod int_expr;
 mod lexer;
 mod parser;
