@@ -9,6 +9,10 @@ use crate::{ast_expression::Expr, scanner::Tk};
 pub struct IdentExpr;
 
 impl IdentExpr {
+    pub fn name() -> String {
+        String::from("id")
+    }
+
     pub fn literal(name: &Tk) -> String {
         String::from(name)
     }
@@ -30,8 +34,7 @@ impl IdentExpr {
 mod tests {
     use crate::{
         ast_statements::Statement,
-        lexer::Lexer,
-        parser::{Errors, Parser, Parsing},
+        parser_test::{assert_identifier, parse_program},
         scanner::Tk,
     };
 
@@ -40,13 +43,7 @@ mod tests {
         let input = r#"
         foobar;
     "#;
-        let lex = Lexer::new(input.into());
-        let mut p = Parser::new(lex);
-        let program = p.parse_program();
-        for err in p.errors() {
-            println!("🎈 {err}");
-        }
-        assert_eq!(p.errors().len(), 0);
+        let program = parse_program(input);
         assert_eq!(
             program.len(),
             1,
@@ -56,10 +53,8 @@ mod tests {
 
         for (_i, stmt) in program.enumerate() {
             match stmt {
-                Statement::Expr {
-                    first_token,
-                    expr: _,
-                } => {
+                Statement::Expr { first_token, expr } => {
+                    assert_identifier(expr, "id", "foobar", "foobar");
                     assert_eq!(
                         first_token,
                         Tk::Ident("foobar".into(), 2),

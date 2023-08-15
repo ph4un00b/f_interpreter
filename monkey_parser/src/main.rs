@@ -8,6 +8,7 @@ mod infix_expr;
 mod int_expr;
 mod lexer;
 mod parser;
+mod parser_test;
 mod prefix_expr;
 mod program_node;
 mod return_statement;
