@@ -42,8 +42,51 @@ mod tests {
         ast::V,
         ast_expression::Expr,
         ast_statements::Statement,
-        parser_test::{assert_literal_expr, parse_program},
+        parser_test::{assert_literal_expression, parse_program},
     };
+
+    #[test]
+    fn test_boolean_expressions() {
+        let tests = vec![
+            ("true == true", V::Bool(true), "==", V::Bool(true)),
+            ("true != false", V::Bool(true), "!=", V::Bool(false)),
+            ("false == false", V::Bool(false), "==", V::Bool(false)),
+        ];
+
+        for (input, expected_left, expected_op, expected_right) in tests {
+            let program = parse_program(input);
+            assert_eq!(
+                program.len(),
+                1,
+                "program has not enough statements. got {}",
+                program.len()
+            );
+
+            for stmt in program {
+                assert_infix_expr(
+                    stmt,
+                    expected_left.clone(),
+                    expected_op,
+                    expected_right.clone(),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_boolean_precedence() {
+        let tests = [
+            ("true", "true"),
+            ("false", "false"),
+            ("3 > 5 == false", "((3 > 5) == false)"),
+            ("3 < 5 == true", "((3 < 5) == true)"),
+        ];
+
+        for (input, expected) in tests {
+            let program = parse_program(input);
+            assert_eq!(program.to_string(), expected);
+        }
+    }
 
     #[test]
     fn test_infix_precedence() {
@@ -69,10 +112,9 @@ mod tests {
             ),
         ];
 
-        for (_index, test) in tests.iter().enumerate() {
-            let (input, expected) = *test;
+        for (input, expected) in tests {
             let program = parse_program(input);
-            assert_eq!(program.to_string(), format!("{expected}"));
+            assert_eq!(program.to_string(), expected);
         }
     }
 
@@ -88,16 +130,9 @@ mod tests {
             ("5 == 5;", V::I64(5i64), "==", V::I64(5i64)),
             ("5 != 5;", V::I64(5i64), "!=", V::I64(5i64)),
             ("5 + 10;", V::I64(5i64), "+", V::I64(10i64)),
-            // (
-            //     "alice * bob;",
-            //     V::String("alice".into()),
-            //     "+",
-            //     V::String("bob".into()),
-            // ),
         ];
 
-        for (_index, test) in tests.iter().enumerate() {
-            let (input, expected_left, expected_op, expected_right) = test;
+        for (input, expected_left, expected_op, expected_right) in tests {
             let program = parse_program(input);
             assert_eq!(
                 program.len(),
@@ -124,13 +159,13 @@ mod tests {
             expr: Expr::Binary { op, right, left },
         } = stmt
         {
-            assert_literal_expr(left, expected_left);
+            assert_literal_expression(left, expected_left);
             assert_eq!(
                 &op.to_string(),
                 expected_op,
                 "exp.Operator is not '{expected_op}'. got {op}",
             );
-            assert_literal_expr(right, expected_right);
+            assert_literal_expression(right, expected_right);
         } else {
             unreachable!("not *ast.Statement::Expr. got {stmt:?}")
         };

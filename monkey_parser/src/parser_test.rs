@@ -30,33 +30,25 @@ pub fn parse_program(input: &str) -> crate::program_node::Program {
 }
 
 #[allow(unused)]
-pub fn assert_literal_expr(expr: Box<Expr>, expected: V) {
-    match expected {
-        V::I64(_) => assert_int_literal(expr, expected),
-        V::Done
-        | V::Return(_)
-        | V::Instance(_)
-        | V::Row(_)
-        | V::Func(_)
-        | V::NativeFunc(_)
-        | V::I32(_)
-        | V::F64(_)
-        | V::String(_)
-        | V::Bool(_) => todo!(),
-    }
+pub fn assert_literal_expression(expr: Box<Expr>, expected_value: V) {
+    let literal = expr.to_literal();
+    let val = match *expr {
+        Expr::Literal { token: _, value } => value,
+        _ => unreachable!("not *ast.LiteralExpression. got {expr}"),
+    };
+    assert_eq!(val, expected_value, "Value not {expected_value}. got {val}");
+    assert_eq!(
+        literal,
+        expected_value.to_string(),
+        "TokenLiteral not {expected_value}. got {literal}"
+    );
 }
 
 #[allow(unused)]
-pub fn assert_int_literal(expr: Box<Expr>, expected: V) {
-    let literal = expr.to_literal();
+fn assert_literal(expr: Box<Expr>) {
     let value = match *expr {
-        Expr::Literal { token: _, value } => value,
-        _ => unreachable!("not *ast.IntegerLiteral. got {expr}"),
+        Expr::Literal { token: _, value: _ } => true,
+        _ => unreachable!("not *ast.LiteralExpression. got {expr}"),
     };
-    assert_eq!(value, expected, "Value not {expected}. got {value}");
-    assert_eq!(
-        literal,
-        expected.to_string(),
-        "TokenLiteral not {expected}. got {literal}"
-    );
+    assert!(value);
 }

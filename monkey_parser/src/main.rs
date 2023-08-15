@@ -2,6 +2,7 @@ mod ast;
 mod ast_expression;
 mod ast_statements;
 mod bind_statement;
+mod bool_expr;
 mod expr_statement;
 mod id_expr;
 mod infix_expr;
