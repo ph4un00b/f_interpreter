@@ -125,6 +125,7 @@ impl Parser {
         let mut left = match &self.current_token {
             Tk::Sub | Tk::Bang => PrefixExpr::parse(self),
             Tk::Ident(_, _) => IdentExpr::parse(self),
+            //todo: v.clone().as_str() seems ugly 💩❗
             Tk::Num(v, _) => IntegerExpr::parse(self, v.clone().as_str()),
             _ => {
                 self.append_error(format!(
@@ -137,6 +138,7 @@ impl Parser {
         };
         while self.peek_token_isnt_semi() && precedence < P::from(&self.peek_token) {
             self.next_token();
+            //? in this case the format is lit with if-let 😏
             left = if let Tk::Plus
             | Tk::Sub
             | Tk::Div
@@ -146,6 +148,7 @@ impl Parser {
             | Tk::LT
             | Tk::GT = &self.current_token
             {
+                //?✅ unwrap is guaranteed❗
                 InfixExpr::parse(self, left.unwrap())
             } else {
                 return left;
