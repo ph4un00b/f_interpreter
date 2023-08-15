@@ -122,11 +122,6 @@ impl Parser {
     }
 
     pub(crate) fn parse_expression(&mut self, precedence: crate::ast::P) -> Option<Expr> {
-        //? prefix := p.prefixParseFns[p.curToken.Type]
-        //? if prefix == nil {
-        //? return nil
-        //? }
-        //? leftExp := prefix()
         let mut left = match &self.current_token {
             Tk::Sub | Tk::Bang => PrefixExpr::parse(self),
             Tk::Ident(_, _) => IdentExpr::parse(self),
@@ -136,22 +131,24 @@ impl Parser {
                     "no prefix parse function for {} found",
                     self.current_token.clone()
                 ));
-                None
+                //todo: test err❗
+                return None;
             }
         };
         while self.peek_token_isnt_semi() && precedence < P::from(&self.peek_token) {
             self.next_token();
-            left = match &self.current_token {
-                Tk::Plus | Tk::Sub | Tk::Div | Tk::Mul | Tk::EQ | Tk::NotEq | Tk::LT | Tk::GT => {
-                    InfixExpr::parse(self, left)
-                }
-                _ => {
-                    self.append_error(format!(
-                        "no infix parse function for {} found",
-                        self.current_token.clone()
-                    ));
-                    None
-                }
+            left = if let Tk::Plus
+            | Tk::Sub
+            | Tk::Div
+            | Tk::Mul
+            | Tk::EQ
+            | Tk::NotEq
+            | Tk::LT
+            | Tk::GT = &self.current_token
+            {
+                InfixExpr::parse(self, left.unwrap())
+            } else {
+                return left;
             }
         }
         left

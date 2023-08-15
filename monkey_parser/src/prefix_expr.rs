@@ -1,9 +1,4 @@
-use crate::{
-    ast::P,
-    ast_expression::Expr,
-    parser::{Errors, Parsing},
-    scanner::Tk,
-};
+use crate::{ast::P, ast_expression::Expr, parser::Parsing};
 
 pub struct PrefixExpr;
 impl PrefixExpr {
@@ -24,18 +19,12 @@ impl PrefixExpr {
     }
 
     pub(crate) fn parse(p: &mut crate::parser::Parser) -> Option<Expr> {
-        //todo: refactor
         let op = p.current_token.to_owned();
-        if let Tk::Sub | Tk::Bang = op {
-            p.next_token();
-            p.parse_expression(P::Prefix).map(|expr| Expr::Unary {
-                op,
-                right: Box::new(expr),
-            })
-        } else {
-            p.append_error(format!("no prefix parse function for {} found", op));
-            None
-        }
+        p.next_token();
+        p.parse_expression(P::Prefix).map(|expr| Expr::Unary {
+            op,
+            right: Box::new(expr),
+        })
     }
 }
 

@@ -24,11 +24,7 @@ impl InfixExpr {
         Ok(())
     }
 
-    pub(crate) fn parse(p: &mut crate::parser::Parser, maybe_left: Option<Expr>) -> Option<Expr> {
-        let left = match maybe_left {
-            Some(l) => l,
-            None => return None,
-        };
+    pub(crate) fn parse(p: &mut crate::parser::Parser, left: Expr) -> Option<Expr> {
         let op = p.current_token.to_owned();
         let precedence = P::from(&p.current_token);
         p.next_token();
