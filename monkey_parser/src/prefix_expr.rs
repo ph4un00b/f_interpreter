@@ -31,23 +31,22 @@ impl PrefixExpr {
 #[cfg(test)]
 mod tests {
     use crate::{
-        ast::{ToLiteral, V},
+        ast::V,
         ast_expression::Expr,
         ast_statements::Statement,
-        lexer::Lexer,
-        parser::{Errors, Parser, Parsing},
+        parser_test::{assert_literal_expr, parse_program},
     };
 
     #[test]
     fn test_prefix_expressions() {
         let tests = vec![
-            ("!5", "!".to_string(), 5i64),
-            ("-15", "-".to_string(), 15i64),
+            ("!5", "!".to_string(), V::I64(5i64)),
+            ("-15", "-".to_string(), V::I64(15i64)),
         ];
 
         for (_index, test) in tests.iter().enumerate() {
             let (test_input, expected_op, expected_value) = test;
-            let program = setup(test_input);
+            let program = parse_program(test_input);
             assert_eq!(
                 program.len(),
                 1,
@@ -56,51 +55,26 @@ mod tests {
             );
 
             for (_i, stmt) in program.enumerate() {
-                println!("> {stmt:?}");
-                let (op, expr) = match stmt {
-                    Statement::Expr {
-                        first_token: _,
-                        expr,
-                    } => match expr {
-                        Expr::Unary { op, right } => (op, right),
-                        _ => unreachable!("stmt is not ast.PrefixExpression. got {expr:?}"),
-                    },
-                    _ => unreachable!("not *ast.Statement::Expr. got {stmt:?}"),
-                };
-                assert_eq!(
-                    &op.to_string(),
-                    expected_op,
-                    "exp.Operator is not '{expected_op}'. got {op}",
-                );
-                let literal = expr.to_literal();
-                let val = match *expr {
-                    Expr::Literal {
-                        token: _,
-                        value: V::I64(val),
-                    } => val,
-                    _ => unreachable!("not *ast.IntegerLiteral. got {expr}"),
-                };
-                assert_eq!(
-                    &val, expected_value,
-                    "Value not {expected_value}. got {val}"
-                );
-                assert_eq!(
-                    literal,
-                    expected_value.to_string(),
-                    "TokenLiteral not {expected_value}. got {literal}"
-                );
+                assert_prefix_expr(stmt, expected_op, expected_value);
             }
         }
     }
 
-    fn setup(input: &str) -> crate::program_node::Program {
-        let lex = Lexer::new(input.into());
-        let mut p = Parser::new(lex);
-        let program = p.parse_program();
-        for err in p.errors() {
-            println!("🎈 {err}");
+    fn assert_prefix_expr(stmt: Statement, expected_op: &String, expected_value: &V) {
+        println!("> {stmt:?}");
+        if let Statement::Expr {
+            first_token: _,
+            expr: Expr::Unary { op, right },
+        } = stmt
+        {
+            assert_eq!(
+                &op.to_string(),
+                expected_op,
+                "exp.Operator is not '{expected_op}'. got {op}",
+            );
+            assert_literal_expr(right, expected_value.clone());
+        } else {
+            unreachable!("not *ast.Statement::Expr. got {stmt:?}")
         }
-        assert_eq!(p.errors().len(), 0);
-        program
     }
 }

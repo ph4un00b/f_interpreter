@@ -7,7 +7,7 @@ use crate::{
 pub struct InfixExpr;
 impl InfixExpr {
     pub(crate) fn literal(left: &Expr, op: &crate::scanner::Tk, right: &Expr) -> String {
-        format!("{}{op}{}", left.to_literal(), right.to_literal())
+        format!("{} {op} {}", left.to_literal(), right.to_literal())
     }
 
     pub(crate) fn display(
@@ -39,11 +39,10 @@ impl InfixExpr {
 #[cfg(test)]
 mod tests {
     use crate::{
-        ast::{ToLiteral, V},
+        ast::V,
         ast_expression::Expr,
         ast_statements::Statement,
-        lexer::Lexer,
-        parser::{Errors, Parser, Parsing},
+        parser_test::{assert_literal_expr, parse_program},
     };
 
     #[test]
@@ -72,7 +71,7 @@ mod tests {
 
         for (_index, test) in tests.iter().enumerate() {
             let (input, expected) = *test;
-            let program = setup(input);
+            let program = parse_program(input);
             assert_eq!(program.to_string(), format!("{expected}"));
         }
     }
@@ -80,19 +79,26 @@ mod tests {
     #[test]
     fn test_infix_expressions() {
         let tests = vec![
-            ("5 + 5;", 5i64, "+", 5i64),
-            ("5 - 5;", 5i64, "-", 5i64),
-            ("5 * 5;", 5i64, "*", 5i64),
-            ("5 / 5;", 5i64, "/", 5i64),
-            ("5 > 5;", 5i64, ">", 5i64),
-            ("5 < 5;", 5i64, "<", 5i64),
-            ("5 == 5;", 5i64, "==", 5i64),
-            ("5 != 5;", 5i64, "!=", 5i64),
+            ("5 + 5;", V::I64(5i64), "+", V::I64(5i64)),
+            ("5 - 5;", V::I64(5i64), "-", V::I64(5i64)),
+            ("5 * 5;", V::I64(5i64), "*", V::I64(5i64)),
+            ("5 / 5;", V::I64(5i64), "/", V::I64(5i64)),
+            ("5 > 5;", V::I64(5i64), ">", V::I64(5i64)),
+            ("5 < 5;", V::I64(5i64), "<", V::I64(5i64)),
+            ("5 == 5;", V::I64(5i64), "==", V::I64(5i64)),
+            ("5 != 5;", V::I64(5i64), "!=", V::I64(5i64)),
+            ("5 + 10;", V::I64(5i64), "+", V::I64(10i64)),
+            // (
+            //     "alice * bob;",
+            //     V::String("alice".into()),
+            //     "+",
+            //     V::String("bob".into()),
+            // ),
         ];
 
         for (_index, test) in tests.iter().enumerate() {
-            let (input, expected_left, expected_op, expected_right) = *test;
-            let program = setup(input);
+            let (input, expected_left, expected_op, expected_right) = test;
+            let program = parse_program(input);
             assert_eq!(
                 program.len(),
                 1,
@@ -100,72 +106,33 @@ mod tests {
                 program.len()
             );
 
-            for (_i, stmt) in program.enumerate() {
-                println!("> {stmt}");
-                let (left, op, right) = match stmt {
-                    Statement::Expr {
-                        first_token: _,
-                        expr,
-                    } => {
-                        println!(">> {}", expr.to_literal());
-                        match expr {
-                            Expr::Binary { op, right, left } => (left, op, right),
-                            _ => unreachable!("stmt is not ast.InfixExpression. got {expr:?}"),
-                        }
-                    }
-                    _ => unreachable!("not *ast.Statement::Expr. got {stmt:?}"),
-                };
-                assert_eq!(
-                    &op.to_string(),
+            for stmt in program {
+                assert_infix_expr(
+                    stmt,
+                    expected_left.clone(),
                     expected_op,
-                    "exp.Operator is not '{expected_op}'. got {op}",
-                );
-                let left_literal = left.to_literal();
-                let left_val = match *left {
-                    Expr::Literal {
-                        token: _,
-                        value: V::I64(val),
-                    } => val,
-                    _ => unreachable!("not *ast.IntegerLiteral. got {left}"),
-                };
-                assert_eq!(
-                    left_val, expected_left,
-                    "Value not {expected_left}. got {left_val}"
-                );
-                assert_eq!(
-                    left_literal,
-                    expected_left.to_string(),
-                    "TokenLiteral not {expected_left}. got {left_literal}"
-                );
-                let right_literal = right.to_literal();
-                let right_val = match *left {
-                    Expr::Literal {
-                        token: _,
-                        value: V::I64(val),
-                    } => val,
-                    _ => unreachable!("not *ast.IntegerLiteral. got {left}"),
-                };
-                assert_eq!(
-                    right_val, expected_right,
-                    "Value not {expected_right}. got {right_val}"
-                );
-                assert_eq!(
-                    left_literal,
-                    expected_right.to_string(),
-                    "TokenLiteral not {expected_right}. got {right_literal}"
+                    expected_right.clone(),
                 );
             }
         }
     }
 
-    fn setup(input: &str) -> crate::program_node::Program {
-        let lex = Lexer::new(input.into());
-        let mut p = Parser::new(lex);
-        let program = p.parse_program();
-        for err in p.errors() {
-            println!("🎈 {err}");
-        }
-        assert_eq!(p.errors().len(), 0);
-        program
+    fn assert_infix_expr(stmt: Statement, expected_left: V, expected_op: &str, expected_right: V) {
+        println!("> {stmt}");
+        if let Statement::Expr {
+            first_token: _,
+            expr: Expr::Binary { op, right, left },
+        } = stmt
+        {
+            assert_literal_expr(left, expected_left);
+            assert_eq!(
+                &op.to_string(),
+                expected_op,
+                "exp.Operator is not '{expected_op}'. got {op}",
+            );
+            assert_literal_expr(right, expected_right);
+        } else {
+            unreachable!("not *ast.Statement::Expr. got {stmt:?}")
+        };
     }
 }

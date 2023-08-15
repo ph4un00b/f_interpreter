@@ -1,5 +1,5 @@
 use crate::{
-    ast::{ToLiteral, V},
+    ast::{Name, ToLiteral, V},
     id_expr::IdentExpr,
     infix_expr::InfixExpr,
     int_expr::IntegerExpr,
@@ -7,6 +7,50 @@ use crate::{
     scanner::Tk,
 };
 
+impl Name for Expr {
+    fn name(&self) -> String {
+        match self {
+            Expr::None => todo!(),
+            Expr::Ident(_) => IdentExpr::name(),
+            Expr::Binary {
+                left: _,
+                op: _,
+                right: _,
+            } => todo!(),
+            Expr::This(_) => todo!(),
+            Expr::Grouping(_) => todo!(),
+            Expr::Call {
+                callee: _,
+                paren: _,
+                arguments: _,
+            } => todo!(),
+            Expr::Logical {
+                left: _,
+                op: _,
+                right: _,
+            } => todo!(),
+            Expr::Assign {
+                identifier: _,
+                value: _,
+            } => todo!(),
+            Expr::GetProp {
+                identifier: _,
+                prop: _,
+            } => todo!(),
+            Expr::SetProp {
+                identifier: _,
+                prop_id: _,
+                value: _,
+            } => todo!(),
+            Expr::Super {
+                keyword: _,
+                behavior: _,
+            } => todo!(),
+            Expr::Literal { token: _, value: _ } => todo!(),
+            Expr::Unary { op: _, right: _ } => todo!(),
+        }
+    }
+}
 impl ToLiteral for Expr {
     fn to_literal(&self) -> String {
         match self {

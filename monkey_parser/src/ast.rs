@@ -38,15 +38,15 @@ impl From<&Tk> for P {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InstanceCallable {}
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RowCallable {}
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FuncCallable {}
 
 #[allow(unused)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum V {
     Done,
     Return(Box<V>),
@@ -61,6 +61,31 @@ pub enum V {
     Bool(bool),
 }
 
+impl std::fmt::Display for V {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            V::Done => write!(f, "done!")?,
+            V::Return(val) => write!(f, "ret {:?}", val)?,
+            // V::Func(function) => write!(f, "{}", function)?,
+            V::NativeFunc(fn_name) => match fn_name.as_str() {
+                "clock" => write!(f, "<native {}>", fn_name)?,
+                _ => write!(f, "#{}", fn_name)?,
+            },
+            V::I64(val) => write!(f, "{}", val)?,
+            V::I32(val) => write!(f, "{}", val)?,
+            V::F64(val) => write!(f, "{}", val)?,
+            V::String(val) => write!(f, "{}", val)?,
+            V::Bool(val) => write!(f, "{}", val)?,
+            V::Instance(_) => todo!(),
+            V::Row(_) => todo!(),
+            V::Func(_) => todo!(),
+            // V::Row(obj) => write!(f, "{}", obj)?,
+            // V::Instance(obj) => write!(f, "{}", obj)?,
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum FnType {
     // None,
@@ -71,6 +96,10 @@ pub enum FnType {
 
 pub trait ToLiteral {
     fn to_literal(&self) -> String;
+}
+
+pub trait Name {
+    fn name(&self) -> String;
 }
 
 #[cfg(test)]
