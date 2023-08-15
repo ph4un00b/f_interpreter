@@ -23,7 +23,7 @@ impl ExprStatement {
         if let Expr::None = expr {
             write!(f, "")?;
         } else {
-            write!(f, "{expr};")?;
+            write!(f, "{expr}")?;
         }
         Ok(())
     }
