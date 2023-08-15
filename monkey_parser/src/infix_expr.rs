@@ -18,7 +18,7 @@ impl InfixExpr {
     ) -> Result<(), std::fmt::Error> {
         write!(f, "(")?;
         write!(f, "{left}")?;
-        write!(f, "{op}")?;
+        write!(f, " {op} ")?;
         write!(f, "{right}")?;
         write!(f, ")")?;
         Ok(())
@@ -45,6 +45,37 @@ mod tests {
         lexer::Lexer,
         parser::{Errors, Parser, Parsing},
     };
+
+    #[test]
+    fn test_infix_precedence() {
+        let tests = vec![
+            ("-a * b", "((-a) * b)"),
+            ("!-a", "(!(-a))"),
+            ("a + b + c", "((a + b) + c)"),
+            ("a + b - c", "((a + b) - c)"),
+            ("a * b * c", "((a * b) * c)"),
+            ("a * b / c", "((a * b) / c)"),
+            ("a + b / c", "(a + (b / c))"),
+            ("a + b * c + d / e - f", "(((a + (b * c)) + (d / e)) - f)"),
+            ("3 + 4; -5 * 5", "(3 + 4)((-5) * 5)"),
+            ("5 > 4 == 3 < 4", "((5 > 4) == (3 < 4))"),
+            ("5 < 4 != 3 > 4", "((5 < 4) != (3 > 4))"),
+            (
+                "3 + 4 * 5 == 3 * 1 + 4 * 5",
+                "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+            ),
+            (
+                "3 + 4 * 5 == 3 * 1 + 4 * 5",
+                "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+            ),
+        ];
+
+        for (_index, test) in tests.iter().enumerate() {
+            let (input, expected) = *test;
+            let program = setup(input);
+            assert_eq!(program.to_string(), format!("{expected}"));
+        }
+    }
 
     #[test]
     fn test_infix_expressions() {

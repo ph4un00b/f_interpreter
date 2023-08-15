@@ -94,7 +94,7 @@ mod tests {
             token: Tk::Return,
             value: Expr::None,
         });
-        assert_eq!(program.to_string().as_str(), "return;\n");
+        assert_eq!(program.to_string().as_str(), "return;");
     }
 
     #[test]
@@ -105,6 +105,6 @@ mod tests {
             identifier: Tk::Ident("myVar".into(), 1),
             initializer: Expr::Ident(Tk::Ident("anotherVar".into(), 1)),
         });
-        assert_eq!(program.to_string().as_str(), "let myVar = anotherVar;\n");
+        assert_eq!(program.to_string().as_str(), "let myVar = anotherVar;");
     }
 }
