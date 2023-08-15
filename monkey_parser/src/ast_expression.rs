@@ -1,6 +1,7 @@
 use crate::{
     ast::{ToLiteral, V},
     id_expr::IdentExpr,
+    infix_expr::InfixExpr,
     int_expr::IntegerExpr,
     prefix_expr::PrefixExpr,
     scanner::Tk,
@@ -13,13 +14,9 @@ impl ToLiteral for Expr {
             Expr::Ident(name) => IdentExpr::literal(name),
             Expr::Literal { token, value: _ } => IntegerExpr::literal(token),
             Expr::Unary { op, right: _ } => PrefixExpr::literal(op),
+            Expr::Binary { left, op, right } => InfixExpr::literal(left, op, right),
             Expr::This(_) => todo!(),
             Expr::Grouping(_) => todo!(),
-            Expr::Binary {
-                left: _,
-                op: _,
-                right: _,
-            } => todo!(),
             Expr::Call {
                 callee: _,
                 paren: _,
@@ -70,13 +67,9 @@ impl std::fmt::Display for Expr {
                 | V::Bool(_) => unreachable!(),
             },
             Expr::Unary { op, right } => PrefixExpr::display(f, op, right),
+            Expr::Binary { left, op, right } => InfixExpr::display(f, left, op, right),
             Expr::This(_) => todo!(),
             Expr::Grouping(_) => todo!(),
-            Expr::Binary {
-                left: _,
-                op: _,
-                right: _,
-            } => todo!(),
             Expr::Call {
                 callee: _,
                 paren: _,

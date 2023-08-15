@@ -1,6 +1,7 @@
 use crate::{
-    ast_expression::Expr, ast_statements::Statement, id_expr::IdentExpr, int_expr::IntegerExpr,
-    lexer::Lexer, prefix_expr::PrefixExpr, program_node::Program, scanner::Tk,
+    ast::P, ast_expression::Expr, ast_statements::Statement, id_expr::IdentExpr,
+    infix_expr::InfixExpr, int_expr::IntegerExpr, lexer::Lexer, prefix_expr::PrefixExpr,
+    program_node::Program, scanner::Tk,
 };
 
 pub(crate) trait Parsing {
@@ -21,6 +22,7 @@ pub(crate) trait Assertions {
      * As you’ll see, this is something a parser does a lot.
      */
     fn current_token_isnt_semi(&self) -> bool;
+    fn peek_token_isnt_semi(&self) -> bool;
     fn expect_peek(&mut self, expected_token: Tk) -> bool;
     fn expect_peek_identifier(&mut self) -> bool;
     fn optional_semi(&mut self) -> bool;
@@ -59,6 +61,10 @@ impl Assertions for Parser {
          * makes it easier to type something like 5 + 5 into the REPL later on).
          */
         self.peek_token == Tk::Semi
+    }
+
+    fn peek_token_isnt_semi(&self) -> bool {
+        self.peek_token != Tk::Semi
     }
 }
 
@@ -121,12 +127,34 @@ impl Parser {
         //? return nil
         //? }
         //? leftExp := prefix()
-        match &self.current_token {
+        let mut left = match &self.current_token {
             Tk::Sub | Tk::Bang => PrefixExpr::parse(self),
             Tk::Ident(_, _) => IdentExpr::parse(self),
             Tk::Num(v, _) => IntegerExpr::parse(self, v.clone().as_str()),
-            _ => None,
+            _ => {
+                self.append_error(format!(
+                    "no prefix parse function for {} found",
+                    self.current_token.clone()
+                ));
+                None
+            }
+        };
+        while self.peek_token_isnt_semi() && precedence < P::from(&self.peek_token) {
+            self.next_token();
+            left = match &self.current_token {
+                Tk::Plus | Tk::Sub | Tk::Div | Tk::Mul | Tk::EQ | Tk::NotEq | Tk::LT | Tk::GT => {
+                    InfixExpr::parse(self, left)
+                }
+                _ => {
+                    self.append_error(format!(
+                        "no infix parse function for {} found",
+                        self.current_token.clone()
+                    ));
+                    None
+                }
+            }
         }
+        left
     }
 }
 
