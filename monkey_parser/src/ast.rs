@@ -4,13 +4,14 @@ use crate::scanner::Tk;
 pub enum P {
     Lowest,
     //?     public static final int ASSIGNMENT  = 1;
-    AssignOrElse,
+    Equals,
+    LessGreater,
     //?     public static final int CONDITIONAL = 2;
     // Cond,
     //?     public static final int SUM         = 3;
     Sum,
     //?     public static final int PRODUCT     = 4;
-    Mul,
+    Product,
     //?     public static final int EXPONENT    = 5;
     // Pow,
     //?     public static final int PREFIX      = 6;
@@ -24,23 +25,14 @@ pub enum P {
 impl From<&Tk> for P {
     fn from(value: &Tk) -> P {
         match value {
-            //? token.EQ: EQUALS,
-            Tk::EQ => P::AssignOrElse,
-            //? token.NOT_EQ: EQUALS,
-            Tk::NotEq => P::AssignOrElse,
-            //? token.LT: LESSGREATER,
-            Tk::LT => P::AssignOrElse,
-            //? token.GT: LESSGREATER,
-            Tk::GT => P::AssignOrElse,
-            //? token.PLUS: SUM,
+            Tk::EQ => P::Equals,
+            Tk::NotEq => P::Equals,
+            Tk::LT => P::LessGreater,
+            Tk::GT => P::LessGreater,
             Tk::Plus => P::Sum,
-            //? token.MINUS: SUM,
             Tk::Sub => P::Sum,
-            //? token.SLASH: PRODUCT,
-            Tk::Div => P::Mul,
-            //? token.ASTERISK: PRODUCT,
-            Tk::Mul => P::Mul,
-            // * aquí puede haber conflicto, por que bang puede ser prefijo e infijo
+            Tk::Div => P::Product,
+            Tk::Mul => P::Product,
             _ => P::Lowest,
         }
     }
