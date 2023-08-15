@@ -14,8 +14,8 @@ impl TryFrom<Byte> for Tk {
         match value {
             b'=' => Ok(Tk::Assign),
             b';' => Ok(Tk::Semi),
-            b'(' => Ok(Tk::LP),
-            b')' => Ok(Tk::RP),
+            b'(' => Ok(Tk::OpenParen),
+            b')' => Ok(Tk::CloseParen),
             b',' => Ok(Tk::Comma),
             b'+' => Ok(Tk::Plus),
             b'{' => Ok(Tk::LB),
@@ -40,8 +40,8 @@ impl From<&Tk> for String {
         match value {
             Tk::Assign => "=".to_string(),
             Tk::Semi => ";".to_string(),
-            Tk::LP => "(".to_string(),
-            Tk::RP => ")".to_string(),
+            Tk::OpenParen => "(".to_string(),
+            Tk::CloseParen => ")".to_string(),
             Tk::Comma => ",".to_string(),
             Tk::Plus => "+".to_string(),
             Tk::LB => "{".to_string(),
@@ -90,8 +90,8 @@ impl std::fmt::Display for Tk {
             | Tk::Div
             | Tk::LT
             | Tk::GT
-            | Tk::LP
-            | Tk::RP
+            | Tk::OpenParen
+            | Tk::CloseParen
             | Tk::LB
             | Tk::RB
             | Tk::Comma
@@ -169,8 +169,8 @@ mod tests {
         let expected_tokens = vec![
             Tk::Assign,
             Tk::Plus,
-            Tk::LP,
-            Tk::RP,
+            Tk::OpenParen,
+            Tk::CloseParen,
             Tk::LB,
             Tk::RB,
             Tk::Comma,
