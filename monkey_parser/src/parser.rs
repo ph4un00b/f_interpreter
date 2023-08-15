@@ -121,6 +121,21 @@ impl Parser {
         p
     }
 
+    /*
+     *  Suppose we’re parsing the following expression statement:
+     *
+     * 1 + 2 + 3;
+     *
+     * The big challenge here is not to represent every operator and operand
+     * in the resulting AST, but to nest the nodes of the AST correctly.
+     * What we want is an AST that (serialized as a string)
+     * looks like this:
+     * ((1 + 2) + 3)
+     *
+     * The goal is to have expressions involving operators with a higher precedence
+     * to be deeper in the tree than expressions with lower precedence operators.
+     * This is accomplished by the precedence value (the argument) in parseExpression
+     */
     pub(crate) fn parse_expression(&mut self, precedence: crate::ast::P) -> Option<Expr> {
         let mut left = match &self.current_token {
             Tk::Sub | Tk::Bang => PrefixExpr::parse(self),
@@ -136,6 +151,16 @@ impl Parser {
                 return None;
             }
         };
+        /*
+         * This condition checks if the left-binding power of the next operator/token
+         * is higher than our current right-binding power.
+         *
+         * If it is, what we parsed so far gets “sucked in” by the next operator,
+         * from left to right, and ends up being passed to
+         * the infixParseFn of the next operator
+         */
+        //? while RIGHT_BINDING_POWER < LEFT_BINDING_POWER
+        //? THEN suck it to the LEFT SIDE
         while self.peek_token_isnt_semi() && precedence < P::from(&self.peek_token) {
             self.next_token();
             //? in this case the format is lit with if-let 😏
