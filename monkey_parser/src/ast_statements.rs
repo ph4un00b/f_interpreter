@@ -134,7 +134,11 @@ impl Statement {
         match &p.current_token {
             Tk::Let => LetStatement::parse(p),
             Tk::Return => ReturnStatement::parse(p),
-            Tk::Sub | Tk::Bang | Tk::Ident(_, _) | Tk::Num(_, _) => ExprStatement::parse(p),
+            //todo is it possible to avoid repetition in #parse_expression❓
+            //todo a macro❓
+            Tk::False | Tk::True | Tk::Sub | Tk::Bang | Tk::Ident(_, _) | Tk::Num(_, _) => {
+                ExprStatement::parse(p)
+            }
             Tk::Assign
             | Tk::Plus
             | Tk::Mul
@@ -153,8 +157,6 @@ impl Statement {
             | Tk::Func
             | Tk::If
             | Tk::Else
-            | Tk::True
-            | Tk::False
             | Tk::EQ
             | Tk::NotEq
             | Tk::Comment

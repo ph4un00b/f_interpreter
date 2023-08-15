@@ -1,5 +1,6 @@
 use crate::{
     ast::{Name, ToLiteral, V},
+    bool_expr::BooleanExpr,
     id_expr::IdentExpr,
     infix_expr::InfixExpr,
     int_expr::IntegerExpr,
@@ -12,6 +13,7 @@ impl Name for Expr {
         match self {
             Expr::None => todo!(),
             Expr::Ident(_) => IdentExpr::name(),
+            Expr::Literal { token: _, value: _ } => BooleanExpr::name(),
             Expr::Binary {
                 left: _,
                 op: _,
@@ -46,7 +48,6 @@ impl Name for Expr {
                 keyword: _,
                 behavior: _,
             } => todo!(),
-            Expr::Literal { token: _, value: _ } => todo!(),
             Expr::Unary { op: _, right: _ } => todo!(),
         }
     }
@@ -99,6 +100,7 @@ impl std::fmt::Display for Expr {
             Expr::Ident(name) => IdentExpr::display(f, name),
             Expr::Literal { token: _, value } => match value {
                 V::I64(val) => IntegerExpr::display(f, val),
+                V::Bool(val) => BooleanExpr::display(f, *val),
                 V::Done
                 | V::Return(_)
                 | V::Instance(_)
@@ -107,8 +109,7 @@ impl std::fmt::Display for Expr {
                 | V::NativeFunc(_)
                 | V::I32(_)
                 | V::F64(_)
-                | V::String(_)
-                | V::Bool(_) => unreachable!(),
+                | V::String(_) => unreachable!(),
             },
             Expr::Unary { op, right } => PrefixExpr::display(f, op, right),
             Expr::Binary { left, op, right } => InfixExpr::display(f, left, op, right),

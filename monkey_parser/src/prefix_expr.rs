@@ -34,15 +34,34 @@ mod tests {
         ast::V,
         ast_expression::Expr,
         ast_statements::Statement,
-        parser_test::{assert_literal_expr, parse_program},
+        parser_test::{assert_literal_expression, parse_program},
     };
 
     #[test]
-    fn test_prefix_expressions() {
+    fn test_boolean_expressions() {
         let tests = vec![
-            ("!5", "!".to_string(), V::I64(5i64)),
-            ("-15", "-".to_string(), V::I64(15i64)),
+            ("!true;", "!", V::Bool(true)),
+            ("!false;", "!", V::Bool(false)),
         ];
+
+        for (input, expected_op, expected_left) in tests {
+            let program = parse_program(input);
+            assert_eq!(
+                program.len(),
+                1,
+                "program has not enough statements. got {}",
+                program.len()
+            );
+
+            for stmt in program {
+                assert_prefix_expr(stmt, expected_op, &expected_left);
+            }
+        }
+    }
+
+    #[test]
+    fn test_prefix_expressions() {
+        let tests = vec![("!5", "!", V::I64(5i64)), ("-15", "-", V::I64(15i64))];
 
         for (_index, test) in tests.iter().enumerate() {
             let (test_input, expected_op, expected_value) = test;
@@ -60,7 +79,7 @@ mod tests {
         }
     }
 
-    fn assert_prefix_expr(stmt: Statement, expected_op: &String, expected_value: &V) {
+    fn assert_prefix_expr(stmt: Statement, expected_op: &str, expected_value: &V) {
         println!("> {stmt:?}");
         if let Statement::Expr {
             first_token: _,
@@ -72,7 +91,7 @@ mod tests {
                 expected_op,
                 "exp.Operator is not '{expected_op}'. got {op}",
             );
-            assert_literal_expr(right, expected_value.clone());
+            assert_literal_expression(right, expected_value.clone());
         } else {
             unreachable!("not *ast.Statement::Expr. got {stmt:?}")
         }
