@@ -1,8 +1,10 @@
 use crate::{
     ast::{Name, ToLiteral, V},
+    ast_statements::Statement,
     bool_expr::BooleanExpr,
     group_expr::GroupExpr,
     id_expr::IdentExpr,
+    if_expr::IfExpr,
     infix_expr::InfixExpr,
     int_expr::IntegerExpr,
     prefix_expr::PrefixExpr,
@@ -15,6 +17,12 @@ impl Name for Expr {
             Expr::None => todo!(),
             Expr::Ident(_) => IdentExpr::name(),
             Expr::Literal { token: _, value: _ } => BooleanExpr::name(),
+            Expr::If {
+                token: _,
+                condition: _,
+                then: _,
+                alternative: _,
+            } => IfExpr::name(),
             Expr::Binary {
                 left: _,
                 op: _,
@@ -61,6 +69,12 @@ impl ToLiteral for Expr {
             Expr::Literal { token, value: _ } => IntegerExpr::literal(token),
             Expr::Unary { op, right: _ } => PrefixExpr::literal(op),
             Expr::Binary { left, op, right } => InfixExpr::literal(left, op, right),
+            Expr::If {
+                token,
+                condition: _,
+                then: _,
+                alternative: _,
+            } => IfExpr::literal(token),
             Expr::This(_) => todo!(),
             Expr::Grouping(_) => todo!(),
             Expr::Call {
@@ -115,6 +129,12 @@ impl std::fmt::Display for Expr {
             Expr::Unary { op, right } => PrefixExpr::display(f, op, right),
             Expr::Binary { left, op, right } => InfixExpr::display(f, left, op, right),
             Expr::Grouping(expr) => GroupExpr::display(f, expr),
+            Expr::If {
+                token: _,
+                condition,
+                then,
+                alternative,
+            } => IfExpr::display(f, condition, then, alternative.as_deref()),
             Expr::This(_) => todo!(),
             Expr::Call {
                 callee: _,
@@ -162,6 +182,14 @@ pub enum Expr {
         value: V,
     },
     Grouping(Box<Expr>),
+    If {
+        token: Tk,
+        condition: Box<Expr>,
+        //? block-stmt
+        then: Box<Statement>,
+        //? block-stmt
+        alternative: Option<Box<Statement>>,
+    },
     Unary {
         op: Tk,
         right: Box<Expr>,

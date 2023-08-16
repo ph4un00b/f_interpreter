@@ -2,6 +2,7 @@ use crate::{
     ast::{FnType, ToLiteral},
     ast_expression::Expr,
     bind_statement::LetStatement,
+    block_stmt::BlockStatement,
     expr_statement::ExprStatement,
     parser::Parser,
     return_statement::ReturnStatement,
@@ -99,8 +100,8 @@ impl std::fmt::Display for Statement {
             } => LetStatement::display(f, token, identifier, initializer),
             Self::Return { token, value } => ReturnStatement::display(f, token, value),
             Self::Expr { first_token, expr } => ExprStatement::display(f, first_token, expr),
+            Self::Block(stmts) => BlockStatement::display(f, stmts),
             Self::Print(_) => todo!(),
-            Self::Block(_) => todo!(),
             Self::Row {
                 name: _,
                 super_expr: _,
@@ -137,6 +138,7 @@ impl Statement {
             //todo is it possible to avoid repetition in #parse_expression❓
             //todo a macro❓
             Tk::OpenParen
+            | Tk::If
             | Tk::False
             | Tk::True
             | Tk::Sub
@@ -150,15 +152,14 @@ impl Statement {
             | Tk::LT
             | Tk::GT
             | Tk::CloseParen
-            | Tk::LB
-            | Tk::RB
+            | Tk::NewBlock
+            | Tk::EndBlock
             | Tk::Comma
             | Tk::Semi
             | Tk::End
             | Tk::String(_, _)
             | Tk::None
             | Tk::Func
-            | Tk::If
             | Tk::Else
             | Tk::EQ
             | Tk::NotEq

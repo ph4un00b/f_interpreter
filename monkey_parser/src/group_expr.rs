@@ -13,7 +13,6 @@ impl GroupExpr {
         if !p.expect_peek(Tk::CloseParen) {
             return None;
         }
-        // panic!("{expr:?}");
         maybe_expr.map(|expr| Expr::Grouping(Box::new(expr)))
     }
 
