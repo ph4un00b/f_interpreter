@@ -1,5 +1,6 @@
 use crate::{ast::ToLiteral, ast_statements::Statement};
 
+#[derive(Debug)]
 pub struct Program {
     statements: Vec<Statement>,
     position: usize,

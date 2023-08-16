@@ -40,9 +40,7 @@ impl InfixExpr {
 mod tests {
     use crate::{
         ast::V,
-        ast_expression::Expr,
-        ast_statements::Statement,
-        parser_test::{assert_literal_expression, parse_program},
+        parser_test::{assert_infix_expr, parse_program},
     };
 
     #[test]
@@ -150,24 +148,5 @@ mod tests {
                 );
             }
         }
-    }
-
-    fn assert_infix_expr(stmt: Statement, expected_left: V, expected_op: &str, expected_right: V) {
-        println!("> {stmt}");
-        if let Statement::Expr {
-            first_token: _,
-            expr: Expr::Binary { op, right, left },
-        } = stmt
-        {
-            assert_literal_expression(left, expected_left);
-            assert_eq!(
-                &op.to_string(),
-                expected_op,
-                "exp.Operator is not '{expected_op}'. got {op}",
-            );
-            assert_literal_expression(right, expected_right);
-        } else {
-            unreachable!("not *ast.Statement::Expr. got {stmt:?}")
-        };
     }
 }
