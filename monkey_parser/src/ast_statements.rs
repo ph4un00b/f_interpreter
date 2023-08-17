@@ -1,5 +1,5 @@
 use crate::{
-    ast::{FnType, ToLiteral},
+    ast::{FnKind, ToLiteral},
     ast_expression::Expr,
     bind_statement::LetStatement,
     block_stmt::BlockStatement,
@@ -29,7 +29,7 @@ pub enum Statement {
         value: Expr,
     },
     Func {
-        kind: FnType,
+        kind: FnKind,
         name: Tk,
         parameters: Vec<Tk>,
         body: Vec<Statement>,
@@ -138,6 +138,7 @@ impl Statement {
             //todo is it possible to avoid repetition in #parse_expression❓
             //todo a macro❓
             Tk::OpenParen
+            | Tk::Func
             | Tk::If
             | Tk::False
             | Tk::True
@@ -152,14 +153,12 @@ impl Statement {
             | Tk::LT
             | Tk::GT
             | Tk::CloseParen
-            | Tk::NewBlock
+            | Tk::CreateBlock
             | Tk::EndBlock
             | Tk::Comma
             | Tk::Semi
             | Tk::End
             | Tk::String(_, _)
-            | Tk::None
-            | Tk::Func
             | Tk::Else
             | Tk::EQ
             | Tk::NotEq
@@ -167,7 +166,8 @@ impl Statement {
             | Tk::EMOJI4(_, _)
             | Tk::EMOJI3(_, _)
             | Tk::EMOJI2(_, _)
-            | Tk::EMOJI1(_, _) => None,
+            | Tk::EMOJI1(_, _)
+            | Tk::None => None,
         }
     }
 }

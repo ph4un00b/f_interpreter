@@ -5,6 +5,7 @@ mod bind_statement;
 mod block_stmt;
 mod bool_expr;
 mod expr_statement;
+mod func_expr;
 mod group_expr;
 mod id_expr;
 mod if_expr;

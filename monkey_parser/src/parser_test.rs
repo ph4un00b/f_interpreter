@@ -7,6 +7,24 @@ use crate::{
 };
 
 #[allow(unused)]
+pub fn assert_id_expression(left: Box<Expr>, expected_value: &str) {
+    let literal = left.to_literal();
+    let val = match *left {
+        Expr::Ident(name) => name,
+        _ => unreachable!("not *ast.Ident. got {left}"),
+    };
+    assert_eq!(
+        val.to_string(),
+        expected_value,
+        "Value not {expected_value}. got {val}"
+    );
+    assert_eq!(
+        literal, expected_value,
+        "TokenLiteral not {expected_value}. got {literal}"
+    );
+}
+
+#[allow(unused)]
 pub fn assert_infix_expr(stmt: Statement, expected_left: V, expected_op: &str, expected_right: V) {
     println!("> {stmt}");
     if let Statement::Expr {

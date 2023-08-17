@@ -7,7 +7,7 @@ impl BlockStatement {
         stmts: &[Statement],
     ) -> Result<(), std::fmt::Error> {
         for statement in stmts {
-            write!(f, "{statement}")?;
+            write!(f, "{{ {statement} }}")?;
         }
         Ok(())
     }

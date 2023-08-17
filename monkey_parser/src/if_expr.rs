@@ -27,13 +27,13 @@ impl IfExpr {
         if !p.expect_peek(Tk::CloseParen) {
             return None;
         }
-        if !p.expect_peek(Tk::NewBlock) {
+        if !p.expect_peek(Tk::CreateBlock) {
             return None;
         }
         let maybe_consequence = BlockStatement::parse(p);
         let maybe_alternative = if p.peek_token == Tk::Else {
             p.next_token();
-            if !p.expect_peek(Tk::NewBlock) {
+            if !p.expect_peek(Tk::CreateBlock) {
                 return None;
             };
             BlockStatement::parse(p)
@@ -58,9 +58,9 @@ impl IfExpr {
         write!(f, "if ")?;
         write!(f, "{condition}")?;
         write!(f, " ")?;
-        write!(f, "{{ {then} }}")?;
+        write!(f, "{then}")?;
         if let Some(else_branch) = alternative {
-            write!(f, " else {{ {else_branch} }}")?;
+            write!(f, " else {else_branch}")?;
         } else {
             write!(f, "")?;
         }
@@ -74,11 +74,11 @@ mod tests {
         ast::{Name, ToLiteral},
         ast_expression::Expr,
         ast_statements::Statement,
-        parser_test::{assert_identifier, parse_program},
+        parser_test::{assert_id_expression, assert_identifier, parse_program},
     };
 
     #[test]
-    fn test_if_expression() {
+    fn test_if_parsing() {
         let input = r#"
             if (x < y) { x }
         "#;
@@ -107,7 +107,7 @@ mod tests {
     }
 
     #[test]
-    fn test_if_else_expression() {
+    fn test_if_else_parsing() {
         let input = r#"
             if (x < y) { x } else { y }
         "#;
@@ -272,22 +272,5 @@ mod tests {
             }
             _ => unreachable!("not *ast.Statement::Expr. got {stmt:?}"),
         }
-    }
-
-    fn assert_id_expression(left: Box<Expr>, expected_value: &str) {
-        let literal = left.to_literal();
-        let val = match *left {
-            Expr::Ident(name) => name,
-            _ => unreachable!("not *ast.Ident. got {left}"),
-        };
-        assert_eq!(
-            val.to_string(),
-            expected_value,
-            "Value not {expected_value}. got {val}"
-        );
-        assert_eq!(
-            literal, expected_value,
-            "TokenLiteral not {expected_value}. got {literal}"
-        );
     }
 }
