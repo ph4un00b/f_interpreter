@@ -58,7 +58,6 @@ impl FunctionExpr {
             p.next_token();
             identifiers.push(p.current_token.clone());
         }
-        println!("{:?}", identifiers);
         if !p.expect_peek(Tk::CloseParen) {
             return vec![];
         }
@@ -82,6 +81,42 @@ mod tests {
         ast_statements::Statement,
         parser_test::{assert_id_expression, parse_program},
     };
+
+    #[test]
+    fn test_func_parameters_parsing() {
+        let tests = [
+            ("fn() {};", vec![]),
+            ("fn(x) {};", vec!["x"]),
+            ("fn(x,y,z) {};", vec!["x", "y", "z"]),
+        ];
+
+        for (input, expected_params) in tests {
+            let program = parse_program(input);
+            let stmt = &program.statements[0];
+            let parameters = match stmt {
+                Statement::Expr {
+                    first_token: _,
+                    expr:
+                        Expr::Func {
+                            kind: _,
+                            token: _,
+                            params,
+                            body: _,
+                        },
+                } => params,
+                _ => unreachable!("not *ast.Statement::Expr::Func. got {stmt:?}"),
+            };
+            assert_eq!(
+                parameters.len(),
+                expected_params.len(),
+                "program has not enough statements. got {}",
+                expected_params.len(),
+            );
+            for (i, param) in expected_params.iter().enumerate() {
+                assert_eq!(&parameters[i].to_string().as_str(), param);
+            }
+        }
+    }
 
     #[test]
     fn test_function_parsing() {
