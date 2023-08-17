@@ -30,17 +30,14 @@ impl ExprStatement {
 
     pub(crate) fn parse(p: &mut crate::parser::Parser) -> Option<crate::ast_statements::Statement> {
         let first_token = p.current_token.clone();
-        let expr = p.parse_expression(P::Lowest);
+        let maybe_expr = p.parse_expression(P::Lowest);
         if p.optional_semi() {
             p.next_token();
         }
-        if let Some(expr) = expr {
-            Some(Statement::Expr { first_token, expr })
-        } else {
-            Some(Statement::Expr {
-                first_token,
-                expr: Expr::None,
-            })
-        }
+        let expr = match maybe_expr {
+            Some(expr) => expr,
+            None => Expr::None,
+        };
+        Some(Statement::Expr { first_token, expr })
     }
 }

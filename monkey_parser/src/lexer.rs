@@ -18,7 +18,7 @@ impl TryFrom<Byte> for Tk {
             b')' => Ok(Tk::CloseParen),
             b',' => Ok(Tk::Comma),
             b'+' => Ok(Tk::Plus),
-            b'{' => Ok(Tk::NewBlock),
+            b'{' => Ok(Tk::CreateBlock),
             b'}' => Ok(Tk::EndBlock),
             0 => Ok(Tk::End),
             _ => Err("only accepts values greater than zero!"),
@@ -44,7 +44,7 @@ impl From<&Tk> for String {
             Tk::CloseParen => ")".to_string(),
             Tk::Comma => ",".to_string(),
             Tk::Plus => "+".to_string(),
-            Tk::NewBlock => "{".to_string(),
+            Tk::CreateBlock => "{".to_string(),
             Tk::EndBlock => "}".to_string(),
             Tk::End => "\0".to_string(),
             //? operators
@@ -92,7 +92,7 @@ impl std::fmt::Display for Tk {
             | Tk::GT
             | Tk::OpenParen
             | Tk::CloseParen
-            | Tk::NewBlock
+            | Tk::CreateBlock
             | Tk::EndBlock
             | Tk::Comma
             | Tk::Semi
@@ -138,8 +138,9 @@ impl Iterator for Lexer {
             None
         } else {
             let tk = self.tokens[self.current_tk].clone();
-            println!("tok {:?} - {:?}", self.current_tk, tk);
+            // println!("tok {:?} - {:?}", self.current_tk, tk);
             self.current_tk += 1;
+            println!(" - {tk}");
             Some(tk)
         }
     }
@@ -171,7 +172,7 @@ mod tests {
             Tk::Plus,
             Tk::OpenParen,
             Tk::CloseParen,
-            Tk::NewBlock,
+            Tk::CreateBlock,
             Tk::EndBlock,
             Tk::Comma,
             Tk::Semi,

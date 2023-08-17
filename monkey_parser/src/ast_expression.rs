@@ -1,7 +1,8 @@
 use crate::{
-    ast::{Name, ToLiteral, V},
+    ast::{FnKind, Name, ToLiteral, V},
     ast_statements::Statement,
     bool_expr::BooleanExpr,
+    func_expr::FunctionExpr,
     group_expr::GroupExpr,
     id_expr::IdentExpr,
     if_expr::IfExpr,
@@ -23,6 +24,12 @@ impl Name for Expr {
                 then: _,
                 alternative: _,
             } => IfExpr::name(),
+            Expr::Func {
+                token: _,
+                kind: _,
+                params: _,
+                body: _,
+            } => FunctionExpr::name(),
             Expr::Binary {
                 left: _,
                 op: _,
@@ -75,6 +82,12 @@ impl ToLiteral for Expr {
                 then: _,
                 alternative: _,
             } => IfExpr::literal(token),
+            Expr::Func {
+                token,
+                kind: _,
+                params: _,
+                body: _,
+            } => FunctionExpr::literal(token),
             Expr::This(_) => todo!(),
             Expr::Grouping(_) => todo!(),
             Expr::Call {
@@ -135,6 +148,12 @@ impl std::fmt::Display for Expr {
                 then,
                 alternative,
             } => IfExpr::display(f, condition, then, alternative.as_deref()),
+            Expr::Func {
+                token,
+                kind,
+                params,
+                body,
+            } => FunctionExpr::display(f, token, kind, params, body),
             Expr::This(_) => todo!(),
             Expr::Call {
                 callee: _,
@@ -177,6 +196,15 @@ pub enum Expr {
     None,
     Ident(Tk),
     This(Tk),
+    Func {
+        kind: FnKind,
+        //? The 'fn' token
+        token: Tk,
+        //?  []*Identifier
+        params: Vec<Tk>,
+        //? *BlockStatement
+        body: Box<Statement>,
+    },
     Literal {
         token: Tk,
         value: V,

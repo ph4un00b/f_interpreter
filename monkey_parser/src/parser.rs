@@ -1,8 +1,8 @@
 use crate::{
     ast::P, ast_expression::Expr, ast_statements::Statement, bool_expr::BooleanExpr,
-    group_expr::GroupExpr, id_expr::IdentExpr, if_expr::IfExpr, infix_expr::InfixExpr,
-    int_expr::IntegerExpr, lexer::Lexer, prefix_expr::PrefixExpr, program_node::Program,
-    scanner::Tk,
+    func_expr::FunctionExpr, group_expr::GroupExpr, id_expr::IdentExpr, if_expr::IfExpr,
+    infix_expr::InfixExpr, int_expr::IntegerExpr, lexer::Lexer, prefix_expr::PrefixExpr,
+    program_node::Program, scanner::Tk,
 };
 
 pub(crate) trait Parsing {
@@ -139,6 +139,7 @@ impl Parser {
      */
     pub(crate) fn parse_expression(&mut self, precedence: crate::ast::P) -> Option<Expr> {
         let mut left = match &self.current_token {
+            Tk::Func => FunctionExpr::parse(self),
             Tk::If => IfExpr::parse(self),
             Tk::OpenParen => GroupExpr::parse(self),
             Tk::False | Tk::True => BooleanExpr::parse(self),
@@ -194,7 +195,7 @@ impl Parsing for Parser {
             self.peek_token = next_token;
         } else {
             self.peek_token = Tk::None;
-        }
+        };
     }
 
     fn parse_program(&mut self) -> Program {

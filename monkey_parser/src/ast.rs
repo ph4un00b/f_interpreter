@@ -87,10 +87,10 @@ impl std::fmt::Display for V {
 }
 
 #[derive(Debug, Clone)]
-pub enum FnType {
-    // None,
+pub enum FnKind {
+    None,
     // Constructor,
-    // Function,
+    Literal,
     // Column,
 }
 
