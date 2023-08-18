@@ -1,7 +1,5 @@
 use crate::{
-    ast_expression::Expr,
-    ast_statements::Statement,
-    parser::{Assertions, Parsing},
+    ast::P, ast_expression::Expr, ast_statements::Statement, parser::Parsing, scanner::Tk,
 };
 
 pub struct ReturnStatement;
@@ -16,14 +14,11 @@ impl ReturnStatement {
     pub(crate) fn parse(p: &mut crate::parser::Parser) -> Option<crate::ast_statements::Statement> {
         let token = p.current_token.clone();
         p.next_token();
-        // TODO: We're skipping the expressions until we encounter a semicolon
-        while p.current_token_isnt_semi() {
+        let maybe_return = p.parse_expression(P::Lowest);
+        if p.peek_token == Tk::Semi {
             p.next_token();
         }
-        Some(Statement::Return {
-            token,
-            value: Expr::None,
-        })
+        maybe_return.map(|value| Statement::Return { token, value })
     }
 
     pub(crate) fn display(
@@ -81,8 +76,6 @@ mod tests {
                 _ => unreachable!("not *ast.Statement::Return. got {stmt:?}"),
             }
         }
-        // let (statements, environment) = test_setup(tokens, vec![]);
-        // let _ = test_run(environment, statements);
     }
 
     fn assert_return(token: Tk, _value: Expr, _test: &str) {
@@ -93,12 +86,5 @@ mod tests {
             Tk::Return,
             token
         );
-        // assert_eq!(
-        //     String::from(&identifier).as_str(),
-        //     test,
-        //     "letStmt.Name.Value not '{}'. got {:?}",
-        //     test,
-        //     String::from(&identifier).as_str()
-        // );
     }
 }
