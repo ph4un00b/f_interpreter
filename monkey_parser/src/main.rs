@@ -19,6 +19,7 @@ mod prefix_expr;
 mod program_node;
 mod return_statement;
 mod scanner;
+mod shunting_yard_algorithm;
 fn main() {
     println!("Hello, world!");
 }
