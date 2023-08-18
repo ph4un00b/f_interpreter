@@ -160,12 +160,12 @@ impl ParserCalc {
             }
             Tk::OpenParen => self.south.push_back(Op::OpenParen),
             Tk::CloseParen => {
-                while let Some(top) = self.south.back() {
-                    if top == &Op::OpenParen {
+                while let Some(top) = self.south.pop_back() {
+                    if top == Op::OpenParen {
                         self.south.pop_back();
                         break;
                     } else {
-                        self.west.push(Exp::Op(self.south.pop_back().unwrap()));
+                        self.west.push(Exp::Op(top.clone()));
                     }
                 }
             }
