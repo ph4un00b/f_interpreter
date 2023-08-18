@@ -4,6 +4,7 @@ mod ast_statements;
 mod bind_statement;
 mod block_stmt;
 mod bool_expr;
+mod caller_expr;
 mod expr_statement;
 mod func_expr;
 mod group_expr;

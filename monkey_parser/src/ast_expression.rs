@@ -2,6 +2,7 @@ use crate::{
     ast::{FnKind, Name, ToLiteral, V},
     ast_statements::Statement,
     bool_expr::BooleanExpr,
+    caller_expr::CallerExpr,
     func_expr::FunctionExpr,
     group_expr::GroupExpr,
     id_expr::IdentExpr,
@@ -18,6 +19,11 @@ impl Name for Expr {
             Expr::None => todo!(),
             Expr::Ident(_) => IdentExpr::name(),
             Expr::Literal { token: _, value: _ } => BooleanExpr::name(),
+            Expr::Caller {
+                callee: _,
+                token: _,
+                arguments: _,
+            } => CallerExpr::name(),
             Expr::If {
                 token: _,
                 condition: _,
@@ -37,11 +43,6 @@ impl Name for Expr {
             } => todo!(),
             Expr::This(_) => todo!(),
             Expr::Grouping(_) => todo!(),
-            Expr::Call {
-                callee: _,
-                paren: _,
-                arguments: _,
-            } => todo!(),
             Expr::Logical {
                 left: _,
                 op: _,
@@ -76,6 +77,11 @@ impl ToLiteral for Expr {
             Expr::Literal { token, value: _ } => IntegerExpr::literal(token),
             Expr::Unary { op, right: _ } => PrefixExpr::literal(op),
             Expr::Binary { left, op, right } => InfixExpr::literal(left, op, right),
+            Expr::Caller {
+                callee: _,
+                token,
+                arguments: _,
+            } => CallerExpr::literal(token),
             Expr::If {
                 token,
                 condition: _,
@@ -90,11 +96,6 @@ impl ToLiteral for Expr {
             } => FunctionExpr::literal(token),
             Expr::This(_) => todo!(),
             Expr::Grouping(_) => todo!(),
-            Expr::Call {
-                callee: _,
-                paren: _,
-                arguments: _,
-            } => todo!(),
             Expr::Logical {
                 left: _,
                 op: _,
@@ -154,14 +155,12 @@ impl std::fmt::Display for Expr {
                 params,
                 body,
             } => FunctionExpr::display(f, token, kind, params, body),
+            Expr::Caller {
+                callee,
+                token,
+                arguments,
+            } => CallerExpr::display(f, token, callee, arguments),
             Expr::This(_) => todo!(),
-            Expr::Call {
-                callee: _,
-                paren: _,
-                arguments: _,
-            } => {
-                todo!()
-            }
             Expr::Logical {
                 left: _,
                 op: _,
@@ -227,9 +226,11 @@ pub enum Expr {
         op: Tk,
         right: Box<Expr>,
     },
-    Call {
+    Caller {
+        //?  The '(' token
+        token: Tk,
+        //? Identifier or FunctionLiteral
         callee: Box<Expr>,
-        paren: Tk,
         arguments: Vec<Expr>,
     },
     Logical {

@@ -1,8 +1,8 @@
 use crate::{
     ast::P, ast_expression::Expr, ast_statements::Statement, bool_expr::BooleanExpr,
-    func_expr::FunctionExpr, group_expr::GroupExpr, id_expr::IdentExpr, if_expr::IfExpr,
-    infix_expr::InfixExpr, int_expr::IntegerExpr, lexer::Lexer, prefix_expr::PrefixExpr,
-    program_node::Program, scanner::Tk,
+    caller_expr::CallerExpr, func_expr::FunctionExpr, group_expr::GroupExpr, id_expr::IdentExpr,
+    if_expr::IfExpr, infix_expr::InfixExpr, int_expr::IntegerExpr, lexer::Lexer,
+    prefix_expr::PrefixExpr, program_node::Program, scanner::Tk,
 };
 
 pub(crate) trait Parsing {
@@ -169,19 +169,13 @@ impl Parser {
         while self.peek_token_isnt_semi() && precedence < P::from(&self.peek_token) {
             self.next_token();
             //? in this case the format is lit with if-let 😏
-            left = if let Tk::Plus
-            | Tk::Sub
-            | Tk::Div
-            | Tk::Mul
-            | Tk::EQ
-            | Tk::NotEq
-            | Tk::LT
-            | Tk::GT = &self.current_token
-            {
-                //?✅ unwrap is guaranteed❗
-                InfixExpr::parse(self, left.unwrap())
-            } else {
-                return left;
+            left = match &self.current_token {
+                Tk::Plus | Tk::Sub | Tk::Div | Tk::Mul | Tk::EQ | Tk::NotEq | Tk::LT | Tk::GT => {
+                    //?✅ unwrap is guaranteed❗
+                    InfixExpr::parse(self, left.unwrap())
+                }
+                Tk::OpenParen => CallerExpr::parse(self, left.unwrap()),
+                _ => return left,
             }
         }
         left

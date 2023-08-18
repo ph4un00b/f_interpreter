@@ -40,7 +40,7 @@ impl InfixExpr {
 mod tests {
     use crate::{
         ast::V,
-        parser_test::{assert_infix_expr, parse_program},
+        parser_test::{assert_infix_stmt, parse_program},
     };
 
     #[test]
@@ -61,7 +61,7 @@ mod tests {
             );
 
             for stmt in program {
-                assert_infix_expr(
+                assert_infix_stmt(
                     stmt,
                     expected_left.clone(),
                     expected_op,
@@ -140,7 +140,7 @@ mod tests {
             );
 
             for stmt in program {
-                assert_infix_expr(
+                assert_infix_stmt(
                     stmt,
                     expected_left.clone(),
                     expected_op,

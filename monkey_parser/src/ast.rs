@@ -19,7 +19,7 @@ pub enum P {
     //?     public static final int POSTFIX     = 7;
     // Post,
     //?     public static final int CALL        = 8;
-    // Call,
+    Call,
 }
 
 impl From<&Tk> for P {
@@ -33,6 +33,7 @@ impl From<&Tk> for P {
             Tk::Sub => P::Sum,
             Tk::Div => P::Product,
             Tk::Mul => P::Product,
+            Tk::OpenParen => P::Call,
             _ => P::Lowest,
         }
     }
