@@ -1,3 +1,7 @@
+/*
+ * based on:
+ * @link https://en.wikipedia.org/wiki/Shunting_yard_algorithm
+ */
 use crate::{lexer::Lexer, scanner::Tk};
 #[allow(unused)]
 enum ParserErr {
