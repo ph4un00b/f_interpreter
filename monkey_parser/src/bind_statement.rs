@@ -1,3 +1,4 @@
+use crate::ast::P;
 use crate::parser::{Assertions, Parsing};
 use crate::{ast_expression::Expr, ast_statements::Statement, parser::Parser, scanner::Tk};
 pub struct LetStatement;
@@ -16,14 +17,15 @@ impl LetStatement {
         if !p.expect_peek(Tk::Assign) {
             return None;
         }
-        // TODO: We're skipping the expressions until we encounter a semicolon
-        while p.current_token_isnt_semi() {
+        p.next_token();
+        let maybe_initializer = p.parse_expression(P::Lowest);
+        if p.peek_token == Tk::Semi {
             p.next_token();
         }
-        Some(Statement::Bind {
+        maybe_initializer.map(|value| Statement::Bind {
             token,
             identifier: name,
-            initializer: Expr::None,
+            initializer: value,
         })
     }
 
@@ -47,9 +49,37 @@ impl LetStatement {
 
 #[cfg(test)]
 mod tests {
-    use crate::{lexer::Lexer, parser::Errors};
+    use crate::parser_test::parse_program;
 
     use super::*;
+
+    #[test]
+    fn test_let_with_expr() {
+        let tests = vec![("let foobar = y;", "foobar", "y")];
+
+        for (input, expected_id, expected_expr) in tests {
+            let program = parse_program(input);
+            assert_eq!(
+                program.len(),
+                1,
+                "program.Statements does not contain 3 statements. {}",
+                program.len()
+            );
+            let stmt = &program.statements[0];
+            println!("> {stmt:?}");
+            match stmt {
+                Statement::Bind {
+                    token: _,
+                    identifier,
+                    initializer,
+                } => {
+                    assert_eq!(identifier.to_string().as_str(), expected_id);
+                    assert_eq!(initializer.to_string().as_str(), expected_expr);
+                }
+                _ => unreachable!("not *ast.LetStatement"),
+            }
+        }
+    }
 
     #[test]
     fn test_let_statement() {
@@ -58,13 +88,7 @@ mod tests {
             let y = 10;
             let foobar = 838383;
         "#;
-        let lex = Lexer::new(statements.into());
-        let mut p = Parser::new(lex);
-        let program = p.parse_program();
-        for err in p.errors() {
-            println!("🎈 {err}");
-        }
-        assert_eq!(p.errors().len(), 0);
+        let program = parse_program(statements);
         assert_eq!(
             program.len(),
             3,
@@ -85,8 +109,6 @@ mod tests {
                 _ => unreachable!("not *ast.LetStatement. got {stmt:?}"),
             }
         }
-        // let (statements, environment) = test_setup(tokens, vec![]);
-        // let _ = test_run(environment, statements);
     }
 
     fn assert_id(token: Tk, identifier: Tk, test: &str) {
