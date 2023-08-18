@@ -34,7 +34,7 @@ mod tests {
         ast::V,
         ast_expression::Expr,
         ast_statements::Statement,
-        parser_test::{assert_literal_expression, parse_program},
+        parser_test::{assert_literal_boxed_expression, parse_program},
     };
 
     #[test]
@@ -91,7 +91,7 @@ mod tests {
                 expected_op,
                 "exp.Operator is not '{expected_op}'. got {op}",
             );
-            assert_literal_expression(right, expected_value.clone());
+            assert_literal_boxed_expression(right, expected_value.clone());
         } else {
             unreachable!("not *ast.Statement::Expr. got {stmt:?}")
         }

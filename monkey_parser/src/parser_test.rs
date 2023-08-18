@@ -25,20 +25,20 @@ pub fn assert_id_expression(left: Box<Expr>, expected_value: &str) {
 }
 
 #[allow(unused)]
-pub fn assert_infix_expr(stmt: Statement, expected_left: V, expected_op: &str, expected_right: V) {
+pub fn assert_infix_stmt(stmt: Statement, expected_left: V, expected_op: &str, expected_right: V) {
     println!("> {stmt}");
     if let Statement::Expr {
         first_token: _,
         expr: Expr::Binary { op, right, left },
     } = stmt
     {
-        assert_literal_expression(left, expected_left);
+        assert_literal_boxed_expression(left, expected_left);
         assert_eq!(
             &op.to_string(),
             expected_op,
             "exp.Operator is not '{expected_op}'. got {op}",
         );
-        assert_literal_expression(right, expected_right);
+        assert_literal_boxed_expression(right, expected_right);
     } else {
         unreachable!("not *ast.Statement::Expr. got {stmt:?}")
     };
@@ -69,7 +69,7 @@ pub fn parse_program(input: &str) -> crate::program_node::Program {
 }
 
 #[allow(unused)]
-pub fn assert_literal_expression(expr: Box<Expr>, expected_value: V) {
+pub fn assert_literal_boxed_expression(expr: Box<Expr>, expected_value: V) {
     let literal = expr.to_literal();
     let val = match *expr {
         Expr::Literal { token: _, value } => value,
