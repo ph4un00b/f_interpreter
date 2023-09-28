@@ -1,8 +1,8 @@
-use crate::{ast::V, ast_expression::Expr, parser::Parser, scanner::Tk};
+use crate::{ast::V, ast_expression::Expr, parser::MonkeyParser, scanner::Tk};
 
 pub struct BooleanExpr;
 impl BooleanExpr {
-    pub(crate) fn parse(p: &Parser) -> Option<crate::ast_expression::Expr> {
+    pub(crate) fn parse(p: &MonkeyParser) -> Option<crate::ast_expression::Expr> {
         Some(Expr::Literal {
             token: p.current_token.to_owned(),
             value: V::Bool(p.current_token == Tk::True),

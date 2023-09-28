@@ -28,7 +28,9 @@ impl FunctionExpr {
         Ok(())
     }
 
-    pub(crate) fn parse(p: &mut crate::parser::Parser) -> Option<crate::ast_expression::Expr> {
+    pub(crate) fn parse(
+        p: &mut crate::parser::MonkeyParser,
+    ) -> Option<crate::ast_expression::Expr> {
         let token = p.current_token.to_owned();
         if !p.expect_peek(Tk::OpenParen) {
             return None;
@@ -45,7 +47,7 @@ impl FunctionExpr {
         })
     }
 
-    fn parse_params(p: &mut crate::parser::Parser) -> Vec<Tk> {
+    fn parse_params(p: &mut crate::parser::MonkeyParser) -> Vec<Tk> {
         let mut identifiers = vec![];
         if p.peek_token == Tk::CloseParen {
             p.next_token();

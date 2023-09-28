@@ -11,7 +11,9 @@ impl ReturnStatement {
         String::from(token)
     }
 
-    pub(crate) fn parse(p: &mut crate::parser::Parser) -> Option<crate::ast_statements::Statement> {
+    pub(crate) fn parse(
+        p: &mut crate::parser::MonkeyParser,
+    ) -> Option<crate::ast_statements::Statement> {
         let token = p.current_token.clone();
         p.next_token();
         let maybe_return = p.parse_expression(P::Lowest);
@@ -42,7 +44,7 @@ mod tests {
         ast_expression::Expr,
         ast_statements::Statement,
         lexer::Lexer,
-        parser::{Errors, Parser, Parsing},
+        parser::{Errors, MonkeyParser, Parsing},
         scanner::Tk,
     };
 
@@ -54,7 +56,7 @@ mod tests {
             return 993322;
         "#;
         let lex = Lexer::new(statements.into());
-        let mut p = Parser::new(lex);
+        let mut p = MonkeyParser::new(lex);
         let program = p.parse_program();
         for err in p.errors() {
             println!("🎈 {err}");

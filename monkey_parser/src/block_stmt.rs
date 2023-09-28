@@ -12,7 +12,7 @@ impl BlockStatement {
         Ok(())
     }
 
-    pub(crate) fn parse(p: &mut crate::parser::Parser) -> Option<Statement> {
+    pub(crate) fn parse(p: &mut crate::parser::MonkeyParser) -> Option<Statement> {
         // let token = p.current_token.to_owned();
         let mut statements = vec![];
         p.next_token();

@@ -3,7 +3,7 @@ use crate::{
     ast_expression::Expr,
     ast_statements::Statement,
     lexer::Lexer,
-    parser::{Errors, Parser, Parsing},
+    parser::{Errors, MonkeyParser, Parsing},
 };
 
 #[allow(unused)]
@@ -59,7 +59,7 @@ pub fn assert_identifier(
 #[allow(unused)]
 pub fn parse_program(input: &str) -> crate::program_node::Program {
     let lex = Lexer::new(input.into());
-    let mut p = Parser::new(lex);
+    let mut p = MonkeyParser::new(lex);
     let program = p.parse_program();
     for err in p.errors() {
         println!("🎈 {err}");

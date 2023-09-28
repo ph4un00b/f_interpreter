@@ -29,7 +29,7 @@ pub(crate) trait Assertions {
     fn optional_semi(&mut self) -> bool;
 }
 
-impl Assertions for Parser {
+impl Assertions for MonkeyParser {
     fn expect_peek_identifier(&mut self) -> bool {
         if let Tk::Ident(_, _) = self.peek_token {
             self.next_token();
@@ -80,7 +80,7 @@ pub(crate) trait Errors {
     fn append_error(&mut self, msg: String);
 }
 
-impl Errors for Parser {
+impl Errors for MonkeyParser {
     fn errors(&self) -> Vec<String> {
         self.errors.clone()
     }
@@ -97,7 +97,7 @@ impl Errors for Parser {
         self.errors.push(msg);
     }
 }
-pub struct Parser {
+pub struct MonkeyParser {
     lex: Lexer,
     pub current_token: Tk,
     /*
@@ -109,9 +109,9 @@ pub struct Parser {
 }
 
 #[allow(unused)]
-impl Parser {
+impl MonkeyParser {
     pub fn new(lex: Lexer) -> Self {
-        let mut p = Parser {
+        let mut p = MonkeyParser {
             lex,
             current_token: Tk::None,
             peek_token: Tk::None,
@@ -182,7 +182,7 @@ impl Parser {
     }
 }
 
-impl Parsing for Parser {
+impl Parsing for MonkeyParser {
     fn next_token(&mut self) {
         self.current_token = self.peek_token.clone();
         if let Some(next_token) = self.lex.next() {

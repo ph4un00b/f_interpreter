@@ -7,7 +7,9 @@ use crate::{
 
 pub struct GroupExpr;
 impl GroupExpr {
-    pub(crate) fn parse(p: &mut crate::parser::Parser) -> Option<crate::ast_expression::Expr> {
+    pub(crate) fn parse(
+        p: &mut crate::parser::MonkeyParser,
+    ) -> Option<crate::ast_expression::Expr> {
         p.next_token();
         let maybe_expr = p.parse_expression(P::Lowest);
         if !p.expect_peek(Tk::CloseParen) {

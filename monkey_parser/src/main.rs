@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 mod ast;
 mod ast_expression;
 mod ast_statements;
@@ -20,6 +22,23 @@ mod program_node;
 mod return_statement;
 mod scanner;
 mod shunting_yard_algorithm;
+use clap::Parser;
+
+#[derive(Parser)]
+#[command(name = "f_interpreter")]
+#[command(author = "phau")]
+#[command(version = "1.0")]
+#[command(about = "Does awesome things❗", long_about = None)]
+struct Cli {
+    #[arg(long)]
+    parser: String,
+    #[arg(long)]
+    one: String,
+}
+
 fn main() {
-    println!("Hello, world!");
+    let cli = Cli::parse();
+
+    println!("two: {:?}", cli.parser);
+    println!("one: {:?}", cli.one);
 }

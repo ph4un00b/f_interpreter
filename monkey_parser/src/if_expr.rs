@@ -17,7 +17,7 @@ impl IfExpr {
         token.to_string()
     }
 
-    pub(crate) fn parse(p: &mut crate::parser::Parser) -> Option<Expr> {
+    pub(crate) fn parse(p: &mut crate::parser::MonkeyParser) -> Option<Expr> {
         let token = p.current_token.to_owned();
         if !p.expect_peek(Tk::OpenParen) {
             return None;

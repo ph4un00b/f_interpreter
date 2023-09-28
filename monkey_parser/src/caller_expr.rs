@@ -24,7 +24,7 @@ impl CallerExpr {
         Ok(())
     }
 
-    pub(crate) fn parse(p: &mut crate::parser::Parser, function: Expr) -> Option<Expr> {
+    pub(crate) fn parse(p: &mut crate::parser::MonkeyParser, function: Expr) -> Option<Expr> {
         Some(Expr::Caller {
             token: p.current_token.to_owned(),
             callee: Box::new(function),
@@ -41,7 +41,7 @@ impl CallerExpr {
     }
 }
 
-fn parse_arguments(p: &mut crate::parser::Parser) -> Vec<Expr> {
+fn parse_arguments(p: &mut crate::parser::MonkeyParser) -> Vec<Expr> {
     let mut args = vec![];
     if p.peek_token == Tk::CloseParen {
         p.next_token();
@@ -60,7 +60,7 @@ fn parse_arguments(p: &mut crate::parser::Parser) -> Vec<Expr> {
     args
 }
 
-fn append_argument(p: &mut crate::parser::Parser, args: &mut Vec<Expr>) {
+fn append_argument(p: &mut crate::parser::MonkeyParser, args: &mut Vec<Expr>) {
     if let Some(expr) = p.parse_expression(P::Lowest) {
         args.push(expr);
     };

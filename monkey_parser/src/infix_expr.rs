@@ -24,7 +24,7 @@ impl InfixExpr {
         Ok(())
     }
 
-    pub(crate) fn parse(p: &mut crate::parser::Parser, left: Expr) -> Option<Expr> {
+    pub(crate) fn parse(p: &mut crate::parser::MonkeyParser, left: Expr) -> Option<Expr> {
         let op = p.current_token.to_owned();
         let precedence = P::from(&p.current_token);
         p.next_token();

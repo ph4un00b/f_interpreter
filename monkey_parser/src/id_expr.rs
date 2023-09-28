@@ -25,7 +25,7 @@ impl IdentExpr {
         Ok(())
     }
 
-    pub(crate) fn parse(p: &crate::parser::Parser) -> Option<Expr> {
+    pub(crate) fn parse(p: &crate::parser::MonkeyParser) -> Option<Expr> {
         Some(Expr::Ident(p.current_token.clone()))
     }
 }

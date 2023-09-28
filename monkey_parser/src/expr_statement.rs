@@ -28,12 +28,26 @@ impl ExprStatement {
         Ok(())
     }
 
-    pub(crate) fn parse(p: &mut crate::parser::Parser) -> Option<crate::ast_statements::Statement> {
+    pub(crate) fn parse(
+        p: &mut crate::parser::MonkeyParser,
+    ) -> Option<crate::ast_statements::Statement> {
         let first_token = p.current_token.clone();
         let maybe_expr = p.parse_expression(P::Lowest);
         if p.optional_semi() {
             p.next_token();
         }
+
+        /*
+         * from lemi-chan
+         *
+         * Option::None
+         * From<Expr> in Option<Expr>
+         * Option<Expr>
+         * Expr
+         * option_expr.into();
+         * Expr::value()
+         * Expr::None
+         */
         let expr = match maybe_expr {
             Some(expr) => expr,
             None => Expr::None,

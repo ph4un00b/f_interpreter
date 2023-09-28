@@ -4,7 +4,7 @@ use crate::{
     bind_statement::LetStatement,
     block_stmt::BlockStatement,
     expr_statement::ExprStatement,
-    parser::Parser,
+    parser::MonkeyParser,
     return_statement::ReturnStatement,
     scanner::Tk,
 };
@@ -131,7 +131,7 @@ impl std::fmt::Display for Statement {
 }
 
 impl Statement {
-    pub fn parse(p: &mut Parser) -> Option<Statement> {
+    pub fn parse(p: &mut MonkeyParser) -> Option<Statement> {
         match &p.current_token {
             Tk::Let => LetStatement::parse(p),
             Tk::Return => ReturnStatement::parse(p),

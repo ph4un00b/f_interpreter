@@ -18,7 +18,7 @@ impl PrefixExpr {
         Ok(())
     }
 
-    pub(crate) fn parse(p: &mut crate::parser::Parser) -> Option<Expr> {
+    pub(crate) fn parse(p: &mut crate::parser::MonkeyParser) -> Option<Expr> {
         let op = p.current_token.to_owned();
         p.next_token();
         p.parse_expression(P::Prefix).map(|expr| Expr::Unary {

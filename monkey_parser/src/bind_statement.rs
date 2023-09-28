@@ -1,6 +1,6 @@
 use crate::ast::P;
 use crate::parser::{Assertions, Parsing};
-use crate::{ast_expression::Expr, ast_statements::Statement, parser::Parser, scanner::Tk};
+use crate::{ast_expression::Expr, ast_statements::Statement, parser::MonkeyParser, scanner::Tk};
 pub struct LetStatement;
 
 impl LetStatement {
@@ -8,7 +8,7 @@ impl LetStatement {
         String::from(identifier)
     }
 
-    pub fn parse(p: &mut Parser) -> Option<Statement> {
+    pub fn parse(p: &mut MonkeyParser) -> Option<Statement> {
         let token = p.current_token.clone();
         if !p.expect_peek_identifier() {
             return None;
