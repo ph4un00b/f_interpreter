@@ -32,6 +32,7 @@
     "packrat",
     "parselet",
     "Parselet",
+    "pmap",
     "poc's",
     "postamble",
     "POSTOP",
@@ -44,6 +45,7 @@
     "thiserror",
     "turbofish",
     "typechecker",
+    "vmmap",
     "whitespaces",
     "yeet",
     "YYLMAX"
