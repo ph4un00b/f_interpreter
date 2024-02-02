@@ -1,6 +1,16 @@
+# 🍕 LOX - Crafting Interpreters (Java)
+
+- `cd monkey_parser && cargo test --package monkey_parser --bin monkey_parser`
+  `
+
+# 🍕 MONKEY - Write Your Own Interpreter (Go)
+
+- `cd lox_parser && cargo test --package lox_parser --bin lox_parser`
+
 # estructura ✨
 
 - **grammars**: contiene poc's de PEG con la librería [pest](https://pest.rs/book/)
+
 - **lox parser**:
   - minimal parser for `1 - (2 * 3) < 4 == false`
   - a more procedural / imperative code style
